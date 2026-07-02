@@ -1,0 +1,12 @@
+[node]
+server_addr=127.0.0.1:8024
+node_id=home-openwrt-001
+node_key=change-me
+
+[tap]
+tap_name=ntap-b0
+mtu=1400
+
+[log]
+level=info
+file=/tmp/ntap-b.log
