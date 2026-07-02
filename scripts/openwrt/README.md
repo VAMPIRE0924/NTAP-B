@@ -9,6 +9,8 @@ package/ntap-b/Makefile        OpenWrt SDK package Makefile
 package/ntap-b/files/          procd init script and default UCI config
 prepare-ntap-b-package.ps1     Windows helper: stage SDK package + local size baseline
 build-ntap-b-sdk.sh            Linux/WSL helper: stage and optionally build in an SDK
+fetch-sdk.sh                   Linux/WSL helper: download and verify a selected OpenWrt SDK
+fetch-sdk.ps1                  Windows wrapper for fetch-sdk.sh
 ```
 
 Use `prepare-ntap-b-package.ps1` without an SDK to verify the package staging
@@ -30,6 +32,26 @@ The init script reads optional UCI settings `bridge_check_name` and
 `preflight_on_start`. They only control local deployment preflight; runtime
 bridge attachment is still controlled by NTAP-A CONFIG_PUSH.
 
-Set `OPENWRT_SDK` or pass `-SdkPath` after the target device architecture is
-selected. The Linux/WSL helper can then copy the package into the SDK, build an
-actual `.ipk`, and append the final package size to the report.
+Set `OPENWRT_SDK` after the target device architecture is selected. The
+Linux/WSL helper can then copy the package into the SDK, build an actual
+OpenWrt package (`.apk` on newer OpenWrt, `.ipk` on older releases), copy it to
+`_release/openwrt/package-output/`, and append the final package size to the
+report.
+
+Fetch a known target SDK through WSL, then build the package against it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\fetch-sdk.ps1 -Version 25.12.5 -Target x86 -Subtarget 64
+```
+
+Use `-WslDistro <name>` if the target machine uses a different WSL
+distribution name.
+
+```sh
+SDK=$(OPENWRT_VERSION=25.12.5 OPENWRT_TARGET=x86 OPENWRT_SUBTARGET=64 sh scripts/openwrt/fetch-sdk.sh)
+OPENWRT_SDK="$SDK" sh scripts/openwrt/build-ntap-b-sdk.sh
+```
+
+The SDK build helper defaults to a GitHub mirror for OpenWrt feeds because
+`git.openwrt.org` can be unstable from WSL. Set
+`OPENWRT_FEED_GITHUB_MIRROR=0` to keep the feed URLs from the SDK.

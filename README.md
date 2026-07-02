@@ -26,8 +26,8 @@ output:
 
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\prepare-ntap-b-package.ps1
 
-Build the final .ipk only after the target architecture is selected and the
-matching OpenWrt SDK is available:
+Build the final OpenWrt .apk or .ipk only after the target architecture is
+selected and the matching OpenWrt SDK is available:
 
     OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
 

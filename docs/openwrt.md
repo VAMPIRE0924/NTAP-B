@@ -14,6 +14,8 @@ scripts/openwrt/package/ntap-b/files/etc/config/ntap-b
 scripts/openwrt/package/ntap-b/files/etc/init.d/ntap-b
 scripts/openwrt/prepare-ntap-b-package.ps1
 scripts/openwrt/build-ntap-b-sdk.sh
+scripts/openwrt/fetch-sdk.sh
+scripts/openwrt/fetch-sdk.ps1
 ```
 
 The current package keeps NTAP-B small: it links OpenSSL/libcrypto, requires
@@ -60,17 +62,33 @@ sh scripts/openwrt/build-ntap-b-sdk.sh
 OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
 ```
 
+Fetch a selected SDK through WSL when the target is known. This default is only
+an x86_64 toolchain smoke; replace version/target/subtarget for the real device:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\fetch-sdk.ps1 -Version 25.12.5 -Target x86 -Subtarget 64
+```
+
+```sh
+SDK=$(OPENWRT_VERSION=25.12.5 OPENWRT_TARGET=x86 OPENWRT_SUBTARGET=64 sh scripts/openwrt/fetch-sdk.sh)
+OPENWRT_SDK="$SDK" sh scripts/openwrt/build-ntap-b-sdk.sh
+```
+
 The report is written to `_release/openwrt/ntap-b-size-report.txt`. Without a
-target SDK, it records the host Linux binary size and marks the OpenWrt `.ipk`
+target SDK, it records the host Linux binary size and marks the OpenWrt package
 build as skipped.
+
+The current x86/64 SDK smoke builds
+`_release/openwrt/package-output/ntap-b-0.1-r1.apk` and records a package size
+of 25,984 bytes. This proves the build chain, not the final device target.
 
 ## Pending
 
 ```text
 select target device architecture
 install matching OpenWrt SDK or ImageBuilder
-compile ntap-b as a target musl .ipk
-record final .ipk size
+compile ntap-b as a target musl package (.apk on newer OpenWrt, .ipk on older releases)
+record final package size
 validate on OpenWrt rootfs or hardware
 repeat br-lan DHCP behavior on OpenWrt hardware/rootfs
 run 24-hour device stability test
