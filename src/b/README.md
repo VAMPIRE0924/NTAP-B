@@ -19,6 +19,17 @@ CONFIG_PUSH bridge_name consumption with Linux TAP bridge attach and clear missi
 bridge-side DHCP netns validation for NTAP-C lease acquisition through NTAP-B bridged TAP
 ```
 
+Deployment preflight:
+
+```sh
+ntap-b check-env
+ntap-b check-env --bridge-name br-lan
+```
+
+The second command creates a temporary TAP probe and attaches it to the named
+Linux bridge, then closes the probe. Use it before enabling a node `bridge_name`
+in NTAP-A.
+
 OpenWrt target-SDK `.ipk` compilation, hardware/rootfs br-lan DHCP repeat
 validation, and device-size reporting on the selected hardware target remain
 later-phase work.

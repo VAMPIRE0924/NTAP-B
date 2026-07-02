@@ -25,6 +25,13 @@ The integration workspace verifies this with
 bridge, NTAP-C receives a DHCP lease through the NTAP TAP relay, and the
 leased TAP address can ping the bridge gateway.
 
+Run this on a target-like Linux/OpenWrt shell before enabling bridge mode to
+preflight TAP privileges and the bridge attach path:
+
+```sh
+ntap-b check-env --bridge-name br-lan
+```
+
 Run this on Windows to stage the package and write a local Linux size baseline:
 
 ```powershell

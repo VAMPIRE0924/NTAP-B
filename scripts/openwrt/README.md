@@ -19,6 +19,12 @@ Runtime bridge behavior is controlled by NTAP-A node config. When A sends a
 non-empty `bridge_name` in CONFIG_PUSH, NTAP-B attaches its TAP interface to
 that Linux bridge and exits clearly if the bridge is missing.
 
+Preflight a target bridge before enabling it in NTAP-A:
+
+```sh
+ntap-b check-env --bridge-name br-lan
+```
+
 Set `OPENWRT_SDK` or pass `-SdkPath` after the target device architecture is
 selected. The Linux/WSL helper can then copy the package into the SDK, build an
 actual `.ipk`, and append the final package size to the report.

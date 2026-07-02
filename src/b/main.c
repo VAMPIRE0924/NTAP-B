@@ -12,7 +12,7 @@ static void usage(FILE *out)
     (void)fprintf(out,
                   "usage:\n"
                   "  ntap-b -c <config> -t\n"
-                  "  ntap-b check-env\n"
+                  "  ntap-b check-env [--bridge-name <name>]\n"
                   "  ntap-b -c <config> run [--once] [--max-attempts <n>] "
                   "[--max-sessions <n>] [--ping-count <n>] [--ping-interval-ms <n>] "
                   "[--send-test-frame] [--send-test-frame-count <n>] "
@@ -72,7 +72,16 @@ int main(int argc, char **argv)
     }
 
     if (command_start > 0 && strcmp(argv[command_start], "check-env") == 0) {
-        int rc = ntap_b_env_check(stdout, err, sizeof(err));
+        const char *bridge_name = arg_value(argc, argv, command_start + 1,
+                                            "--bridge-name");
+        int rc = 0;
+
+        if (has_flag(argc, argv, command_start + 1, "--bridge-name") &&
+            bridge_name == NULL) {
+            (void)fprintf(stderr, "ntap-b: --bridge-name requires a value\n");
+            return 2;
+        }
+        rc = ntap_b_env_check(stdout, bridge_name, err, sizeof(err));
 
         if (rc != 0) {
             (void)fprintf(stderr, "ntap-b: check-env failed: %s\n", err);
