@@ -7,6 +7,7 @@ param(
     [string]$TargetHost,
     [string]$User = "root",
     [int]$Port = 22,
+    [string]$SshIdentityFile = "",
     [string]$RemoteDir = "",
     [string]$ServerAddr = "",
     [string]$NodeId = "",
@@ -56,6 +57,68 @@ function Quote-Sh {
         Fail "single quotes are not supported in remote shell arguments: $Value"
     }
     return "'$Value'"
+}
+
+function Resolve-LocalPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
+}
+
+function Add-SshIdentityArgs {
+    param(
+        [Parameter(Mandatory = $true)]$List,
+        [string]$IdentityFile
+    )
+    if (-not [string]::IsNullOrWhiteSpace($IdentityFile)) {
+        $List.Add("-i") | Out-Null
+        $List.Add($IdentityFile) | Out-Null
+    }
+}
+
+function New-SshArgs {
+    param([Parameter(Mandatory = $true)][string[]]$Tail)
+    $args = New-Object System.Collections.Generic.List[string]
+    Add-SshIdentityArgs -List $args -IdentityFile $SshIdentityFile
+    $args.Add("-p") | Out-Null
+    $args.Add([string]$Port) | Out-Null
+    foreach ($item in $Tail) {
+        $args.Add($item) | Out-Null
+    }
+    return $args.ToArray()
+}
+
+function New-SshBatchArgs {
+    param([Parameter(Mandatory = $true)][string[]]$Tail)
+    $args = New-Object System.Collections.Generic.List[string]
+    Add-SshIdentityArgs -List $args -IdentityFile $SshIdentityFile
+    $args.Add("-o") | Out-Null
+    $args.Add("BatchMode=yes") | Out-Null
+    $args.Add("-o") | Out-Null
+    $args.Add("ConnectTimeout=5") | Out-Null
+    $args.Add("-p") | Out-Null
+    $args.Add([string]$Port) | Out-Null
+    foreach ($item in $Tail) {
+        $args.Add($item) | Out-Null
+    }
+    return $args.ToArray()
+}
+
+function New-ScpArgs {
+    param([Parameter(Mandatory = $true)][string[]]$Tail)
+    $args = New-Object System.Collections.Generic.List[string]
+    Add-SshIdentityArgs -List $args -IdentityFile $SshIdentityFile
+    $args.Add("-P") | Out-Null
+    $args.Add([string]$Port) | Out-Null
+    foreach ($item in $Tail) {
+        $args.Add($item) | Out-Null
+    }
+    return $args.ToArray()
 }
 
 function Mask-Secrets {
@@ -167,6 +230,12 @@ foreach ($tool in @("ssh.exe", "scp.exe")) {
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Get-LatestPackageVersion
 }
+if (-not [string]::IsNullOrWhiteSpace($SshIdentityFile)) {
+    $SshIdentityFile = Resolve-LocalPath -Path $SshIdentityFile
+    if (-not (Test-Path -LiteralPath $SshIdentityFile)) {
+        Fail "SSH identity file not found: $SshIdentityFile"
+    }
+}
 
 $packageDir = Join-Path $PackageRoot $Version
 if (-not (Test-Path -LiteralPath $packageDir)) {
@@ -224,6 +293,9 @@ Write-Host "NTAP-B OpenWrt remote deploy"
 Write-Host "Version=$Version"
 Write-Host "Target=$target"
 Write-Host "Port=$Port"
+if (-not [string]::IsNullOrWhiteSpace($SshIdentityFile)) {
+    Write-Host "SshIdentityFile=$SshIdentityFile"
+}
 Write-Host "RemoteDir=$RemoteDir"
 Write-Host "Package=$($openWrtPackage[0].FullName)"
 Write-Host "PackageArch=$packageArch"
@@ -235,7 +307,7 @@ Write-Host "TargetDryRun=$TargetDryRun"
 Write-Host "DryRun=$DryRun"
 
 $probeCommand = "if command -v apk >/dev/null 2>&1; then apk --print-arch; elif command -v opkg >/dev/null 2>&1; then opkg print-architecture; else uname -m; fi"
-$remoteArchOutput = Invoke-Capture -FilePath "ssh.exe" -Arguments @("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-p", "$Port", $target, $probeCommand) -Label "OpenWrt arch probe"
+$remoteArchOutput = Invoke-Capture -FilePath "ssh.exe" -Arguments (New-SshBatchArgs -Tail @($target, $probeCommand)) -Label "OpenWrt arch probe"
 if (-not $DryRun) {
     $remoteArch = Get-ArchFromOpenWrtProbe -Output $remoteArchOutput
     if ([string]::IsNullOrWhiteSpace($remoteArch)) {
@@ -250,9 +322,9 @@ if (-not $DryRun) {
     }
 }
 
-Invoke-External -FilePath "ssh.exe" -Arguments @("-p", "$Port", $target, "mkdir -p $(Quote-Sh $RemoteDir)")
-Invoke-External -FilePath "scp.exe" -Arguments @("-P", "$Port", $openWrtPackage[0].FullName, $installer, $validator, "${target}:$RemoteDir/")
-Invoke-External -FilePath "ssh.exe" -Arguments @("-p", "$Port", $target, "chmod +x $(Quote-Sh $remoteInstaller) $(Quote-Sh $remoteValidator)")
+Invoke-External -FilePath "ssh.exe" -Arguments (New-SshArgs -Tail @($target, "mkdir -p $(Quote-Sh $RemoteDir)"))
+Invoke-External -FilePath "scp.exe" -Arguments (New-ScpArgs -Tail @($openWrtPackage[0].FullName, $installer, $validator, "${target}:$RemoteDir/"))
+Invoke-External -FilePath "ssh.exe" -Arguments (New-SshArgs -Tail @($target, "chmod +x $(Quote-Sh $remoteInstaller) $(Quote-Sh $remoteValidator)"))
 
 $installParts = New-Object System.Collections.Generic.List[string]
 $installParts.Add("sh") | Out-Null
@@ -299,7 +371,7 @@ if ($TargetDryRun) {
 }
 
 $installCommand = ($installParts -join " ")
-Invoke-External -FilePath "ssh.exe" -Arguments @("-p", "$Port", $target, $installCommand)
+Invoke-External -FilePath "ssh.exe" -Arguments (New-SshArgs -Tail @($target, $installCommand))
 
 if ($DryRun -or $TargetDryRun) {
     Write-Host "Remote report copy skipped for dry-run."
@@ -308,6 +380,6 @@ if ($DryRun -or $TargetDryRun) {
     if (-not [string]::IsNullOrWhiteSpace($reportDir)) {
         New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
     }
-    Invoke-External -FilePath "scp.exe" -Arguments @("-P", "$Port", "${target}:$remoteReport", $ReportOut)
+    Invoke-External -FilePath "scp.exe" -Arguments (New-ScpArgs -Tail @("${target}:$remoteReport", $ReportOut))
     Write-Host "OpenWrt target validation report: $ReportOut"
 }
