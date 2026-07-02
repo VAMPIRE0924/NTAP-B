@@ -237,11 +237,12 @@ static b_socks_stream_t *b_socks_stream_find(b_socks_stream_t *streams,
 }
 
 static int b_send_socks_close(ntap_socket_t fd, uint32_t session_id,
-                              uint32_t stream_id, char *err, size_t err_len)
+                              uint32_t stream_id, uint16_t reason_code,
+                              char *err, size_t err_len)
 {
-    uint8_t payload[NTAP_SOCKS_DATA_OVERHEAD];
+    uint8_t payload[NTAP_SOCKS_CLOSE_REASON_SIZE];
 
-    if (ntap_encode_socks_close(payload, stream_id) != 0) {
+    if (ntap_encode_socks_close_reason(payload, stream_id, reason_code, 0) != 0) {
         (void)snprintf(err, err_len, "failed to encode SOCKS close");
         return -1;
     }
@@ -269,6 +270,7 @@ static int b_socks_stream_open(b_socks_stream_t *streams, ntap_socket_t control_
     (void)snprintf(target, sizeof(target), "%s:%u", open_msg.host, open_msg.port);
     if (ntap_tcp_connect(target, &target_fd, err, err_len) != 0) {
         (void)b_send_socks_close(control_fd, session_id, open_msg.stream_id,
+                                 NTAP_SOCKS_CLOSE_REASON_TARGET_CONNECT_FAILED,
                                  err, err_len);
         return 0;
     }
@@ -285,6 +287,7 @@ static int b_socks_stream_open(b_socks_stream_t *streams, ntap_socket_t control_
     }
     ntap_socket_close(target_fd);
     (void)b_send_socks_close(control_fd, session_id, open_msg.stream_id,
+                             NTAP_SOCKS_CLOSE_REASON_RESOURCE_LIMITED,
                              err, err_len);
     return 0;
 }
@@ -484,6 +487,7 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
 
                 b_socks_stream_close(streams, stream_id);
                 (void)b_send_socks_close(fd, auth_ok->session_id, stream_id,
+                                         NTAP_SOCKS_CLOSE_REASON_REMOTE_CLOSED,
                                          err, err_len);
                 continue;
             }
