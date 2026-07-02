@@ -16,7 +16,7 @@ generated release archives. Final release packages belong in GitHub Releases.
     src/common/  shared protocol and helpers
     src/b/  component source
     conf/        minimal example config
-    scripts/openwrt/  OpenWrt package, UCI, procd, and SDK staging helpers
+    scripts/openwrt/  OpenWrt package, UCI, procd, SDK, and device validation helpers
     docs/             OpenWrt staging and SDK notes
 
 ## OpenWrt
@@ -29,8 +29,12 @@ output:
 Build the final OpenWrt .apk or .ipk only after the target architecture is
 selected and the matching OpenWrt SDK is available:
 
-    OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
-    OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
+OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
+OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
+
+After installing the compiled package on the target, run the device validator:
+
+    sh scripts/openwrt/device-validate.sh --bridge-name br-lan --strict-service
 
 At runtime, NTAP-A controls TAP bridge attachment through the node
 bridge_name field carried in CONFIG_PUSH.

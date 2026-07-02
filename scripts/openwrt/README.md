@@ -12,6 +12,7 @@ build-ntap-b-sdk.sh            Linux/WSL helper: stage and optionally build in a
 fetch-sdk.sh                   Linux/WSL helper: download and verify a selected OpenWrt SDK
 fetch-sdk.ps1                  Windows wrapper for fetch-sdk.sh
 verify-package.sh              Linux/WSL helper: inspect ntap-b .apk/.ipk metadata and payload
+device-validate.sh             OpenWrt target helper: verify installed package, TAP, UCI, and service state
 ```
 
 Use `prepare-ntap-b-package.ps1` without an SDK to verify the package staging
@@ -62,3 +63,14 @@ Verify the generated package metadata and payload paths:
 ```sh
 OPENWRT_SDK="$SDK" sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
 ```
+
+After installing the compiled package on the OpenWrt target, copy the release
+validator asset to `/tmp/` and run it on the device:
+
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-device-validate.sh --bridge-name br-lan
+sh /tmp/NTAP-B-<version>-openwrt-device-validate.sh --bridge-name br-lan --strict-service
+```
+
+The report defaults to `/tmp/ntap-b-device-validation.txt`. The script masks
+`node_key` when it records UCI settings.

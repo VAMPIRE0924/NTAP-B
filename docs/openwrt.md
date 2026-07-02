@@ -16,6 +16,8 @@ scripts/openwrt/prepare-ntap-b-package.ps1
 scripts/openwrt/build-ntap-b-sdk.sh
 scripts/openwrt/fetch-sdk.sh
 scripts/openwrt/fetch-sdk.ps1
+scripts/openwrt/verify-package.sh
+scripts/openwrt/device-validate.sh
 ```
 
 The current package keeps NTAP-B small: it links OpenSSL/libcrypto, requires
@@ -84,8 +86,22 @@ The current x86/64 SDK smoke builds
 of 25,984 bytes. Package metadata verification confirms the package depends on
 `kmod-tun`, `libc`, and `libopenssl3`, and carries `/usr/sbin/ntap-b`,
 `/etc/init.d/ntap-b`, and `/etc/config/ntap-b`. Release packages include the
-captured metadata as `NTAP-B-<version>-openwrt-METADATA.txt`. This proves the
-build chain, not the final device target.
+captured metadata as `NTAP-B-<version>-openwrt-METADATA.txt` plus
+`NTAP-B-<version>-openwrt-device-validate.sh`. This proves the build chain,
+not the final device target.
+
+After installing the compiled package on the OpenWrt target, copy the device
+validator release asset to `/tmp/` and run:
+
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-device-validate.sh --bridge-name br-lan
+sh /tmp/NTAP-B-<version>-openwrt-device-validate.sh --bridge-name br-lan --strict-service
+```
+
+The validator checks `/usr/sbin/ntap-b`, `/etc/init.d/ntap-b`,
+`/etc/config/ntap-b`, package dependencies, `/dev/net/tun`, `ntap-b check-env`,
+`/etc/init.d/ntap-b check`, service state, and UCI values with `node_key`
+masked in the report.
 
 ## Pending
 
