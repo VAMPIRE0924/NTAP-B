@@ -13,6 +13,7 @@ environment self-check for Linux TAP prerequisites
 synthetic TAP_FRAME smoke helpers
 SOCKS stream target TCP connect plus bidirectional DATA/CLOSE relay
 direct listener from CONFIG_PUSH direct_enabled/direct_port with short-lived token validation
+direct TAP_FRAME relay between authenticated direct clients and local Linux TAP
 ```
 
 OpenWrt procd packaging, bridge automation, DHCP validation, and device-size

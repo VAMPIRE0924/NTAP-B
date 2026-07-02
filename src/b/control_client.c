@@ -37,12 +37,28 @@ static void sleep_msec(unsigned int msec)
 
 #define NTAP_B_MAX_SOCKS_STREAMS 32
 #define NTAP_B_SOCKS_READ_CHUNK 8192u
+#define NTAP_B_MAX_DIRECT_CLIENTS 8
 
 typedef struct b_socks_stream {
     int active;
     uint32_t stream_id;
     ntap_socket_t fd;
 } b_socks_stream_t;
+
+typedef struct b_direct_client {
+    int active;
+    ntap_socket_t fd;
+    char remote[128];
+} b_direct_client_t;
+
+static int b_direct_listener_start(const ntap_config_push_t *runtime_config,
+                                   ntap_socket_t *out,
+                                   char *err, size_t err_len);
+static int b_direct_accept_client(ntap_socket_t listen_fd,
+                                  const char *node_id, const char *node_key,
+                                  int64_t network_id, ntap_socket_t *out,
+                                  char *remote_out, size_t remote_out_len,
+                                  char *err, size_t err_len);
 
 static int recv_expected(ntap_socket_t fd, uint8_t expected_type, ntap_hdr_t *hdr,
                          uint8_t *payload, size_t payload_cap, size_t *payload_len,
@@ -98,17 +114,133 @@ static int send_tap_payload(ntap_socket_t fd, uint32_t session_id, uint32_t netw
                          (uint32_t)payload_len, err, err_len);
 }
 
+static void b_direct_clients_close_all(b_direct_client_t *clients)
+{
+    int i = 0;
+
+    for (i = 0; i < NTAP_B_MAX_DIRECT_CLIENTS; i++) {
+        if (clients[i].active) {
+            ntap_socket_close(clients[i].fd);
+            clients[i].active = 0;
+        }
+    }
+}
+
+static void b_direct_client_close(b_direct_client_t *client, const char *reason)
+{
+    if (client == NULL || !client->active) {
+        return;
+    }
+    (void)printf("ntap-b: direct client closed remote=%s reason=%s\n",
+                 client->remote, reason);
+    (void)fflush(stdout);
+    ntap_socket_close(client->fd);
+    client->active = 0;
+    client->remote[0] = '\0';
+}
+
+static void b_direct_clients_add(b_direct_client_t *clients, ntap_socket_t fd,
+                                 const char *remote)
+{
+    int i = 0;
+
+    for (i = 0; i < NTAP_B_MAX_DIRECT_CLIENTS; i++) {
+        if (!clients[i].active) {
+            clients[i].active = 1;
+            clients[i].fd = fd;
+            (void)snprintf(clients[i].remote, sizeof(clients[i].remote), "%s",
+                           remote == NULL ? "unknown" : remote);
+            (void)printf("ntap-b: direct client online remote=%s\n",
+                         clients[i].remote);
+            (void)fflush(stdout);
+            return;
+        }
+    }
+    (void)printf("ntap-b: direct client rejected remote=%s reason=capacity\n",
+                 remote == NULL ? "unknown" : remote);
+    (void)fflush(stdout);
+    ntap_socket_close(fd);
+}
+
+static void b_direct_clients_send_tap(b_direct_client_t *clients, int skip_index,
+                                      uint32_t network_id, const uint8_t *frame,
+                                      uint16_t frame_len)
+{
+    char local_err[128];
+    int i = 0;
+
+    for (i = 0; i < NTAP_B_MAX_DIRECT_CLIENTS; i++) {
+        if (!clients[i].active || i == skip_index) {
+            continue;
+        }
+        local_err[0] = '\0';
+        if (send_tap_payload(clients[i].fd, 0, network_id, frame, frame_len,
+                             local_err, sizeof(local_err)) != 0) {
+            b_direct_client_close(&clients[i],
+                                  local_err[0] == '\0' ? "send_failed" : local_err);
+            continue;
+        }
+        (void)printf("ntap-b: direct TAP_FRAME sent remote=%s len=%u\n",
+                     clients[i].remote, frame_len);
+        (void)fflush(stdout);
+    }
+}
+
+static void b_direct_clients_handle_readable(b_direct_client_t *clients, int index,
+                                             ntap_tap_t *tap, uint32_t network_id)
+{
+    uint8_t payload[NTAP_PAYLOAD_MAX_CONTROL];
+    ntap_hdr_t hdr;
+    size_t payload_len = 0;
+    char local_err[128];
+    ntap_tap_frame_t tap_frame;
+
+    if (index < 0 || index >= NTAP_B_MAX_DIRECT_CLIENTS ||
+        !clients[index].active || tap == NULL) {
+        return;
+    }
+    local_err[0] = '\0';
+    if (ntap_recv_msg(clients[index].fd, &hdr, payload, sizeof(payload),
+                      &payload_len, local_err, sizeof(local_err)) != 0) {
+        b_direct_client_close(&clients[index],
+                              local_err[0] == '\0' ? "recv_failed" : local_err);
+        return;
+    }
+    if (hdr.type != NTAP_MSG_TAP_FRAME ||
+        ntap_decode_tap_frame(&tap_frame, payload, payload_len) != 0 ||
+        tap_frame.network_id != network_id) {
+        b_direct_client_close(&clients[index], "invalid_tap_frame");
+        return;
+    }
+    if (ntap_tap_write(tap, tap_frame.frame, tap_frame.frame_len,
+                       local_err, sizeof(local_err)) != 0) {
+        b_direct_client_close(&clients[index],
+                              local_err[0] == '\0' ? "tap_write_failed" : local_err);
+        return;
+    }
+    (void)printf("ntap-b: direct TAP_FRAME received remote=%s len=%u\n",
+                 clients[index].remote, tap_frame.frame_len);
+    (void)fflush(stdout);
+    b_direct_clients_send_tap(clients, index, network_id, tap_frame.frame,
+                              tap_frame.frame_len);
+}
+
 static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
                         const ntap_auth_ok_t *auth_ok,
+                        const ntap_config_push_t *runtime_config,
+                        const char *node_id, const char *node_key,
                         unsigned int ping_interval_ms,
                         char *err, size_t err_len)
 {
     ntap_tap_t tap;
+    b_direct_client_t direct_clients[NTAP_B_MAX_DIRECT_CLIENTS];
+    ntap_socket_t direct_listen_fd = NTAP_INVALID_SOCKET;
     uint8_t payload[NTAP_PAYLOAD_MAX_CONTROL];
     uint8_t frame_buf[NTAP_MAX_MTU + 64u];
     ntap_hdr_t hdr;
     size_t payload_len = 0;
 
+    (void)memset(direct_clients, 0, sizeof(direct_clients));
     tap.fd = -1;
     tap.name[0] = '\0';
     if (ntap_tap_open(&tap, tap_name, mtu, err, err_len) != 0) {
@@ -117,8 +249,16 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
     (void)printf("ntap-b: TAP opened name=%s mtu=%u\n", tap.name, mtu);
     (void)fflush(stdout);
 
+    if (b_direct_listener_start(runtime_config, &direct_listen_fd,
+                                err, err_len) != 0) {
+        ntap_tap_close(&tap);
+        return -1;
+    }
     if (ntap_send_msg(fd, NTAP_MSG_PING, auth_ok->session_id, NULL, 0,
                       err, err_len) != 0) {
+        if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+            ntap_socket_close(direct_listen_fd);
+        }
         ntap_tap_close(&tap);
         return -1;
     }
@@ -128,10 +268,25 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
         int maxfd = fd > tap.fd ? fd : tap.fd;
         int selected = 0;
         struct timeval tv;
+        int i = 0;
 
         FD_ZERO(&readfds);
         FD_SET(fd, &readfds);
         FD_SET(tap.fd, &readfds);
+        if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+            FD_SET(direct_listen_fd, &readfds);
+            if (direct_listen_fd > maxfd) {
+                maxfd = direct_listen_fd;
+            }
+        }
+        for (i = 0; i < NTAP_B_MAX_DIRECT_CLIENTS; i++) {
+            if (direct_clients[i].active) {
+                FD_SET(direct_clients[i].fd, &readfds);
+                if (direct_clients[i].fd > maxfd) {
+                    maxfd = direct_clients[i].fd;
+                }
+            }
+        }
         tv.tv_sec = (long)(ping_interval_ms / 1000u);
         tv.tv_usec = (long)((ping_interval_ms % 1000u) * 1000u);
         if (tv.tv_sec == 0 && tv.tv_usec == 0) {
@@ -144,12 +299,20 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
                 continue;
             }
             (void)snprintf(err, err_len, "select failed: %s", strerror(errno));
+            if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                ntap_socket_close(direct_listen_fd);
+            }
+            b_direct_clients_close_all(direct_clients);
             ntap_tap_close(&tap);
             return -1;
         }
         if (selected == 0) {
             if (ntap_send_msg(fd, NTAP_MSG_PING, auth_ok->session_id, NULL, 0,
                               err, err_len) != 0) {
+                if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                    ntap_socket_close(direct_listen_fd);
+                }
+                b_direct_clients_close_all(direct_clients);
                 ntap_tap_close(&tap);
                 return -1;
             }
@@ -160,6 +323,10 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
 
             if (ntap_tap_read(&tap, frame_buf, sizeof(frame_buf), &frame_len,
                               err, err_len) != 0) {
+                if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                    ntap_socket_close(direct_listen_fd);
+                }
+                b_direct_clients_close_all(direct_clients);
                 ntap_tap_close(&tap);
                 return -1;
             }
@@ -167,9 +334,15 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
                 if (send_tap_payload(fd, auth_ok->session_id, auth_ok->network_id,
                                      frame_buf, (uint16_t)frame_len,
                                      err, err_len) != 0) {
+                    if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                        ntap_socket_close(direct_listen_fd);
+                    }
+                    b_direct_clients_close_all(direct_clients);
                     ntap_tap_close(&tap);
                     return -1;
                 }
+                b_direct_clients_send_tap(direct_clients, -1, auth_ok->network_id,
+                                          frame_buf, (uint16_t)frame_len);
                 (void)printf("ntap-b: TAP_FRAME sent len=%zu\n", frame_len);
                 (void)fflush(stdout);
             }
@@ -177,6 +350,10 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
         if (FD_ISSET(fd, &readfds)) {
             if (ntap_recv_msg(fd, &hdr, payload, sizeof(payload), &payload_len,
                               err, err_len) != 0) {
+                if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                    ntap_socket_close(direct_listen_fd);
+                }
+                b_direct_clients_close_all(direct_clients);
                 ntap_tap_close(&tap);
                 return -1;
             }
@@ -189,22 +366,65 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
                 if (ntap_decode_tap_frame(&tap_frame, payload, payload_len) != 0 ||
                     tap_frame.network_id != auth_ok->network_id) {
                     (void)snprintf(err, err_len, "invalid relayed TAP_FRAME");
+                    if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                        ntap_socket_close(direct_listen_fd);
+                    }
+                    b_direct_clients_close_all(direct_clients);
                     ntap_tap_close(&tap);
                     return -1;
                 }
                 if (ntap_tap_write(&tap, tap_frame.frame, tap_frame.frame_len,
                                    err, err_len) != 0) {
+                    if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                        ntap_socket_close(direct_listen_fd);
+                    }
+                    b_direct_clients_close_all(direct_clients);
                     ntap_tap_close(&tap);
                     return -1;
                 }
+                b_direct_clients_send_tap(direct_clients, -1, auth_ok->network_id,
+                                          tap_frame.frame, tap_frame.frame_len);
                 (void)printf("ntap-b: TAP_FRAME received len=%u\n", tap_frame.frame_len);
                 (void)fflush(stdout);
                 continue;
             }
             (void)snprintf(err, err_len, "unexpected message in tap mode: %s",
                            ntap_msg_type_name(hdr.type));
+            if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                ntap_socket_close(direct_listen_fd);
+            }
+            b_direct_clients_close_all(direct_clients);
             ntap_tap_close(&tap);
             return -1;
+        }
+        if (direct_listen_fd != NTAP_INVALID_SOCKET &&
+            FD_ISSET(direct_listen_fd, &readfds)) {
+            ntap_socket_t direct_fd = NTAP_INVALID_SOCKET;
+            char remote[128];
+
+            remote[0] = '\0';
+            if (b_direct_accept_client(direct_listen_fd, node_id, node_key,
+                                       (int64_t)auth_ok->network_id,
+                                       &direct_fd, remote, sizeof(remote),
+                                       err, err_len) != 0) {
+                if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+                    ntap_socket_close(direct_listen_fd);
+                }
+                b_direct_clients_close_all(direct_clients);
+                ntap_tap_close(&tap);
+                return -1;
+            }
+            if (direct_fd != NTAP_INVALID_SOCKET) {
+                b_direct_clients_add(direct_clients, direct_fd, remote);
+            }
+            continue;
+        }
+        for (i = 0; i < NTAP_B_MAX_DIRECT_CLIENTS; i++) {
+            if (direct_clients[i].active &&
+                FD_ISSET(direct_clients[i].fd, &readfds)) {
+                b_direct_clients_handle_readable(direct_clients, i, &tap,
+                                                 auth_ok->network_id);
+            }
         }
     }
 }
@@ -346,45 +566,85 @@ static int b_direct_listener_start(const ntap_config_push_t *runtime_config,
     return 0;
 }
 
-static int b_direct_accept_probe(ntap_socket_t listen_fd,
-                                 const char *node_id, const char *node_key,
-                                 int64_t network_id, char *err, size_t err_len)
+static int b_direct_read_token_line(ntap_socket_t client_fd, char *token_buf,
+                                    size_t token_buf_len, const char *remote,
+                                    char *err, size_t err_len)
 {
-    ntap_socket_t client_fd = NTAP_INVALID_SOCKET;
-    ntap_direct_token_t token;
-    char token_buf[NTAP_DIRECT_TOKEN_MAX];
-    char remote[128];
     int wait_rc = 0;
-    int n = 0;
     size_t len = 0;
 
-    remote[0] = '\0';
-    if (ntap_tcp_accept(listen_fd, &client_fd, remote, sizeof(remote),
-                        err, err_len) != 0) {
+    if (token_buf == NULL || token_buf_len == 0) {
         return -1;
     }
-    wait_rc = ntap_socket_wait_read(client_fd, 2000u, err, err_len);
-    if (wait_rc != 0) {
-        (void)printf("ntap-b: direct token rejected remote=%s reason=read_timeout\n",
+    token_buf[0] = '\0';
+    while (len + 1u < token_buf_len) {
+        char ch = '\0';
+        int n = 0;
+
+        wait_rc = ntap_socket_wait_read(client_fd, 2000u, err, err_len);
+        if (wait_rc != 0) {
+            (void)printf("ntap-b: direct token rejected remote=%s reason=read_timeout\n",
+                         remote);
+            (void)fflush(stdout);
+            return 1;
+        }
+        n = recv(client_fd, &ch, 1, 0);
+        if (n <= 0) {
+            (void)printf("ntap-b: direct token rejected remote=%s reason=read_failed\n",
+                         remote);
+            (void)fflush(stdout);
+            return 1;
+        }
+        if (ch == '\n') {
+            break;
+        }
+        token_buf[len++] = ch;
+    }
+    if (len + 1u >= token_buf_len) {
+        (void)printf("ntap-b: direct token rejected remote=%s reason=too_long\n",
                      remote);
         (void)fflush(stdout);
-        ntap_socket_close(client_fd);
-        return 0;
+        return 1;
     }
-    n = recv(client_fd, token_buf, (int)(sizeof(token_buf) - 1u), 0);
-    if (n <= 0) {
-        (void)printf("ntap-b: direct token rejected remote=%s reason=read_failed\n",
-                     remote);
-        (void)fflush(stdout);
-        ntap_socket_close(client_fd);
-        return 0;
-    }
-    token_buf[n] = '\0';
+    token_buf[len] = '\0';
     len = strlen(token_buf);
     while (len > 0 &&
            (token_buf[len - 1u] == '\n' || token_buf[len - 1u] == '\r' ||
             token_buf[len - 1u] == ' ' || token_buf[len - 1u] == '\t')) {
         token_buf[--len] = '\0';
+    }
+    return 0;
+}
+
+static int b_direct_accept_client(ntap_socket_t listen_fd,
+                                  const char *node_id, const char *node_key,
+                                  int64_t network_id, ntap_socket_t *out,
+                                  char *remote_out, size_t remote_out_len,
+                                  char *err, size_t err_len)
+{
+    ntap_socket_t client_fd = NTAP_INVALID_SOCKET;
+    ntap_direct_token_t token;
+    char token_buf[NTAP_DIRECT_TOKEN_MAX];
+    char remote[128];
+    int token_rc = 0;
+
+    if (out == NULL) {
+        return -1;
+    }
+    *out = NTAP_INVALID_SOCKET;
+    remote[0] = '\0';
+    if (remote_out != NULL && remote_out_len > 0) {
+        remote_out[0] = '\0';
+    }
+    if (ntap_tcp_accept(listen_fd, &client_fd, remote, sizeof(remote),
+                        err, err_len) != 0) {
+        return -1;
+    }
+    token_rc = b_direct_read_token_line(client_fd, token_buf, sizeof(token_buf),
+                                        remote, err, err_len);
+    if (token_rc != 0) {
+        ntap_socket_close(client_fd);
+        return token_rc < 0 ? -1 : 0;
     }
     if (ntap_direct_token_verify(token_buf, node_key, node_id, network_id,
                                  ntap_time_unix_sec(), &token) != 0) {
@@ -396,7 +656,26 @@ static int b_direct_accept_probe(ntap_socket_t listen_fd,
     (void)printf("ntap-b: direct token accepted remote=%s user_id=%lld network_id=%lld\n",
                  remote, (long long)token.user_id, (long long)token.network_id);
     (void)fflush(stdout);
-    ntap_socket_close(client_fd);
+    if (remote_out != NULL && remote_out_len > 0) {
+        (void)snprintf(remote_out, remote_out_len, "%s", remote);
+    }
+    *out = client_fd;
+    return 0;
+}
+
+static int b_direct_accept_probe(ntap_socket_t listen_fd,
+                                 const char *node_id, const char *node_key,
+                                 int64_t network_id, char *err, size_t err_len)
+{
+    ntap_socket_t client_fd = NTAP_INVALID_SOCKET;
+
+    if (b_direct_accept_client(listen_fd, node_id, node_key, network_id,
+                               &client_fd, NULL, 0, err, err_len) != 0) {
+        return -1;
+    }
+    if (client_fd != NTAP_INVALID_SOCKET) {
+        ntap_socket_close(client_fd);
+    }
     return 0;
 }
 
@@ -707,7 +986,8 @@ static int run_session(const ntap_b_config_t *cfg, int ping_count,
             (void)snprintf(err, err_len, "CONFIG_PUSH disabled TAP");
             goto done;
         }
-        rc = run_tap_loop(fd, tap_name, tap_mtu, &auth_ok, ping_interval_ms,
+        rc = run_tap_loop(fd, tap_name, tap_mtu, &auth_ok, &runtime_config,
+                          cfg->node_id, cfg->node_key, ping_interval_ms,
                           err, err_len);
         goto done;
     }
