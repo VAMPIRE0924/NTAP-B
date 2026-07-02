@@ -15,7 +15,8 @@ SOCKS stream target TCP connect plus bidirectional DATA/CLOSE relay
 direct listener from CONFIG_PUSH direct_enabled/direct_port with short-lived token validation
 direct TAP_FRAME relay between authenticated direct clients and local Linux TAP
 OpenWrt package skeleton, default UCI config, procd init script, and SDK staging helpers
+CONFIG_PUSH bridge_name consumption with Linux TAP bridge attach and clear missing-bridge errors
 ```
 
-OpenWrt target-SDK `.ipk` compilation, bridge automation, DHCP validation, and
-device-size reporting on the selected hardware target remain later-phase work.
+OpenWrt target-SDK `.ipk` compilation, br-lan DHCP validation, and device-size
+reporting on the selected hardware target remain later-phase work.

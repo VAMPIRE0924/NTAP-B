@@ -227,7 +227,8 @@ static void b_direct_clients_handle_readable(b_direct_client_t *clients, int ind
                               tap_frame.frame_len);
 }
 
-static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
+static int run_tap_loop(ntap_socket_t fd, const char *tap_name,
+                        const char *bridge_name, uint16_t mtu,
                         const ntap_auth_ok_t *auth_ok,
                         const ntap_config_push_t *runtime_config,
                         const char *node_id, const char *node_key,
@@ -250,6 +251,15 @@ static int run_tap_loop(ntap_socket_t fd, const char *tap_name, uint16_t mtu,
     }
     (void)printf("ntap-b: TAP opened name=%s mtu=%u\n", tap.name, mtu);
     (void)fflush(stdout);
+    if (ntap_tap_attach_bridge(&tap, bridge_name, err, err_len) != 0) {
+        ntap_tap_close(&tap);
+        return -1;
+    }
+    if (bridge_name != NULL && bridge_name[0] != '\0') {
+        (void)printf("ntap-b: TAP bridge attached name=%s bridge=%s\n",
+                     tap.name, bridge_name);
+        (void)fflush(stdout);
+    }
 
     if (b_direct_listener_start(runtime_config, &direct_listen_fd,
                                 err, err_len) != 0) {
@@ -962,6 +972,7 @@ static int run_session(const ntap_b_config_t *cfg, int ping_count,
     ntap_auth_ok_t auth_ok;
     ntap_config_push_t runtime_config;
     const char *tap_name = NULL;
+    const char *bridge_name = NULL;
     uint16_t tap_mtu = NTAP_DEFAULT_MTU;
     int rc = 1;
 
@@ -1018,12 +1029,14 @@ static int run_session(const ntap_b_config_t *cfg, int ping_count,
         goto done;
     }
     tap_name = runtime_config.tap_name[0] == '\0' ? cfg->tap_name : runtime_config.tap_name;
+    bridge_name = runtime_config.bridge_name;
     tap_mtu = runtime_config.mtu;
     (void)printf("ntap-b: auth ok session_id=%u network_id=%u\n",
                  auth_ok.session_id, auth_ok.network_id);
 
 #ifdef _WIN32
     (void)tap_name;
+    (void)bridge_name;
     (void)tap_mtu;
     if (tap_mode) {
         (void)snprintf(err, err_len, "TAP mode is not supported on Windows in current phase");
@@ -1035,7 +1048,8 @@ static int run_session(const ntap_b_config_t *cfg, int ping_count,
             (void)snprintf(err, err_len, "CONFIG_PUSH disabled TAP");
             goto done;
         }
-        rc = run_tap_loop(fd, tap_name, tap_mtu, &auth_ok, &runtime_config,
+        rc = run_tap_loop(fd, tap_name, bridge_name, tap_mtu,
+                          &auth_ok, &runtime_config,
                           cfg->node_id, cfg->node_key, ping_interval_ms,
                           err, err_len);
         goto done;

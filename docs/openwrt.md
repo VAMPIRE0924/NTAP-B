@@ -15,7 +15,12 @@ scripts/openwrt/build-ntap-b-sdk.sh
 ```
 
 The current package keeps NTAP-B small: it links OpenSSL/libcrypto, requires
-`kmod-tun` and `ip-full`, and does not link SQLite or Web UI dependencies.
+`kmod-tun`, and does not link SQLite, Web UI, or `ip-full` dependencies.
+NTAP-A owns the runtime `bridge_name` setting through node config and
+CONFIG_PUSH. When `bridge_name` is non-empty, NTAP-B attaches the opened TAP
+interface to that Linux bridge and fails clearly if the bridge is missing.
+The integration workspace verifies this with
+`scripts/smoke-phase2-bridge-netns.sh`.
 
 Run this on Windows to stage the package and write a local Linux size baseline:
 
@@ -43,6 +48,6 @@ install matching OpenWrt SDK or ImageBuilder
 compile ntap-b as a target musl .ipk
 record final .ipk size
 validate on OpenWrt rootfs or hardware
-bridge ntap-b TAP into br-lan
+validate br-lan DHCP behavior on OpenWrt
 run 24-hour device stability test
 ```

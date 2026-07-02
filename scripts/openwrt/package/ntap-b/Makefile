@@ -11,7 +11,7 @@ define Package/ntap-b
   SECTION:=net
   CATEGORY:=Network
   TITLE:=NTAP-B TAP node client
-  DEPENDS:=+libopenssl +kmod-tun +ip-full
+  DEPENDS:=+libopenssl +kmod-tun
 endef
 
 define Package/ntap-b/description
