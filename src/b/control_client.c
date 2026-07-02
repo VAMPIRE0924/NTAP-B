@@ -320,7 +320,48 @@ static void b_socks_stream_close(b_socks_stream_t *streams, uint32_t stream_id)
     stream->active = 0;
 }
 
+static int b_direct_listener_start(const ntap_config_push_t *runtime_config,
+                                   ntap_socket_t *out,
+                                   char *err, size_t err_len)
+{
+    char addr[64];
+
+    if (out == NULL) {
+        return -1;
+    }
+    *out = NTAP_INVALID_SOCKET;
+    if (runtime_config == NULL || !runtime_config->direct_enabled ||
+        runtime_config->direct_port == 0) {
+        return 0;
+    }
+    (void)snprintf(addr, sizeof(addr), "0.0.0.0:%u",
+                   runtime_config->direct_port);
+    if (ntap_tcp_listen(addr, 8, out, err, err_len) != 0) {
+        return -1;
+    }
+    (void)printf("ntap-b: direct server start addr=%s\n", addr);
+    (void)fflush(stdout);
+    return 0;
+}
+
+static int b_direct_accept_probe(ntap_socket_t listen_fd, char *err, size_t err_len)
+{
+    ntap_socket_t client_fd = NTAP_INVALID_SOCKET;
+    char remote[128];
+
+    remote[0] = '\0';
+    if (ntap_tcp_accept(listen_fd, &client_fd, remote, sizeof(remote),
+                        err, err_len) != 0) {
+        return -1;
+    }
+    (void)printf("ntap-b: direct probe accepted remote=%s\n", remote);
+    (void)fflush(stdout);
+    ntap_socket_close(client_fd);
+    return 0;
+}
+
 static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
+                            const ntap_config_push_t *runtime_config,
                             int ping_count, unsigned int ping_interval_ms,
                             int send_test_frame_count, int expect_test_frame,
                             int send_test_frame_each_pong,
@@ -336,12 +377,17 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
     int pings_done = 0;
     int sent_test_frames = 0;
     int got_test_frame = 0;
+    ntap_socket_t direct_listen_fd = NTAP_INVALID_SOCKET;
     int rc = 1;
 
     (void)memset(streams, 0, sizeof(streams));
+    if (b_direct_listener_start(runtime_config, &direct_listen_fd,
+                                err, err_len) != 0) {
+        return 1;
+    }
     if (ntap_send_msg(fd, NTAP_MSG_PING, auth_ok->session_id, NULL, 0,
                       err, err_len) != 0) {
-        return 1;
+        goto done;
     }
     for (;;) {
         fd_set readfds;
@@ -354,6 +400,14 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
 
         FD_ZERO(&readfds);
         FD_SET(fd, &readfds);
+        if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+            FD_SET(direct_listen_fd, &readfds);
+#ifndef _WIN32
+            if (direct_listen_fd > maxfd) {
+                maxfd = direct_listen_fd;
+            }
+#endif
+        }
         for (i = 0; i < NTAP_B_MAX_SOCKS_STREAMS; i++) {
             if (streams[i].active) {
                 FD_SET(streams[i].fd, &readfds);
@@ -475,6 +529,13 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
                            ntap_msg_type_name(hdr.type));
             goto done;
         }
+        if (direct_listen_fd != NTAP_INVALID_SOCKET &&
+            FD_ISSET(direct_listen_fd, &readfds)) {
+            if (b_direct_accept_probe(direct_listen_fd, err, err_len) != 0) {
+                goto done;
+            }
+            continue;
+        }
         for (i = 0; i < NTAP_B_MAX_SOCKS_STREAMS; i++) {
             int n = 0;
 
@@ -503,6 +564,11 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
     }
 
 done:
+    if (direct_listen_fd != NTAP_INVALID_SOCKET) {
+        ntap_socket_close(direct_listen_fd);
+        (void)printf("ntap-b: direct server stop\n");
+        (void)fflush(stdout);
+    }
     b_socks_streams_close_all(streams);
     return rc;
 }
@@ -604,7 +670,7 @@ static int run_session(const ntap_b_config_t *cfg, int ping_count,
     }
 #endif
 
-    rc = run_control_loop(fd, &auth_ok, ping_count, ping_interval_ms,
+    rc = run_control_loop(fd, &auth_ok, &runtime_config, ping_count, ping_interval_ms,
                           send_test_frame_count, expect_test_frame,
                           send_test_frame_each_pong, err, err_len);
 

@@ -12,6 +12,7 @@ Linux TAP open/read/write relay path
 environment self-check for Linux TAP prerequisites
 synthetic TAP_FRAME smoke helpers
 SOCKS stream target TCP connect plus bidirectional DATA/CLOSE relay
+direct probe listener from CONFIG_PUSH direct_enabled/direct_port
 ```
 
 OpenWrt procd packaging, bridge automation, DHCP validation, and device-size
