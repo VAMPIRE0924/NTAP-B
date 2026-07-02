@@ -18,6 +18,7 @@ scripts/openwrt/fetch-sdk.sh
 scripts/openwrt/fetch-sdk.ps1
 scripts/openwrt/verify-package.sh
 scripts/openwrt/device-validate.sh
+scripts/openwrt/install-package.sh
 ```
 
 The current package keeps NTAP-B small: it links OpenSSL/libcrypto, requires
@@ -87,8 +88,26 @@ of 25,984 bytes. Package metadata verification confirms the package depends on
 `kmod-tun`, `libc`, and `libopenssl3`, and carries `/usr/sbin/ntap-b`,
 `/etc/init.d/ntap-b`, and `/etc/config/ntap-b`. Release packages include the
 captured metadata as `NTAP-B-<version>-openwrt-METADATA.txt` plus
-`NTAP-B-<version>-openwrt-device-validate.sh`. This proves the build chain,
-not the final device target.
+`NTAP-B-<version>-openwrt-device-validate.sh` and
+`NTAP-B-<version>-openwrt-install.sh`. This proves the build chain, not the
+final device target.
+
+The install helper can install the copied `.apk`/`.ipk`, write UCI node values,
+run `/etc/init.d/ntap-b check`, enable/start the service, and invoke the device
+validator:
+
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-install.sh \
+  --package /tmp/NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk \
+  --server-addr '<ntap-a-host>:8024' \
+  --node-id '<node-id-from-ntap-a>' \
+  --node-key '<node-key-from-ntap-a>' \
+  --bridge-name br-lan \
+  --enable --start \
+  --run-validator \
+  --validator /tmp/NTAP-B-<version>-openwrt-device-validate.sh \
+  --strict-service
+```
 
 After installing the compiled package on the OpenWrt target, copy the device
 validator release asset to `/tmp/` and run:
