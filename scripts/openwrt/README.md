@@ -42,6 +42,12 @@ OpenWrt package (`.apk` on newer OpenWrt, `.ipk` on older releases), copy it to
 `_release/openwrt/package-output/`, and append the final package size to the
 report.
 
+Before remote deployment, record the target package architecture in
+`conf/deployment-plan.local.psd1` as `TargetArch`. It must match the `arch:`
+line in `NTAP-B-<version>-openwrt-METADATA.txt`; otherwise the readiness check
+will stop real deployment. Rebuild with the matching SDK/ImageBuilder when the
+target is not the same architecture as the release package.
+
 Fetch a known target SDK through WSL, then build the package against it:
 
 ```powershell
