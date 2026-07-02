@@ -4,7 +4,9 @@
 
 #include "b/control_client.h"
 
+#include "common/direct_token.h"
 #include "common/net.h"
+#include "common/ntap_time.h"
 #include "common/tap.h"
 #include "common/wire.h"
 
@@ -344,17 +346,55 @@ static int b_direct_listener_start(const ntap_config_push_t *runtime_config,
     return 0;
 }
 
-static int b_direct_accept_probe(ntap_socket_t listen_fd, char *err, size_t err_len)
+static int b_direct_accept_probe(ntap_socket_t listen_fd,
+                                 const char *node_id, const char *node_key,
+                                 int64_t network_id, char *err, size_t err_len)
 {
     ntap_socket_t client_fd = NTAP_INVALID_SOCKET;
+    ntap_direct_token_t token;
+    char token_buf[NTAP_DIRECT_TOKEN_MAX];
     char remote[128];
+    int wait_rc = 0;
+    int n = 0;
+    size_t len = 0;
 
     remote[0] = '\0';
     if (ntap_tcp_accept(listen_fd, &client_fd, remote, sizeof(remote),
                         err, err_len) != 0) {
         return -1;
     }
-    (void)printf("ntap-b: direct probe accepted remote=%s\n", remote);
+    wait_rc = ntap_socket_wait_read(client_fd, 2000u, err, err_len);
+    if (wait_rc != 0) {
+        (void)printf("ntap-b: direct token rejected remote=%s reason=read_timeout\n",
+                     remote);
+        (void)fflush(stdout);
+        ntap_socket_close(client_fd);
+        return 0;
+    }
+    n = recv(client_fd, token_buf, (int)(sizeof(token_buf) - 1u), 0);
+    if (n <= 0) {
+        (void)printf("ntap-b: direct token rejected remote=%s reason=read_failed\n",
+                     remote);
+        (void)fflush(stdout);
+        ntap_socket_close(client_fd);
+        return 0;
+    }
+    token_buf[n] = '\0';
+    len = strlen(token_buf);
+    while (len > 0 &&
+           (token_buf[len - 1u] == '\n' || token_buf[len - 1u] == '\r' ||
+            token_buf[len - 1u] == ' ' || token_buf[len - 1u] == '\t')) {
+        token_buf[--len] = '\0';
+    }
+    if (ntap_direct_token_verify(token_buf, node_key, node_id, network_id,
+                                 ntap_time_unix_sec(), &token) != 0) {
+        (void)printf("ntap-b: direct token rejected remote=%s\n", remote);
+        (void)fflush(stdout);
+        ntap_socket_close(client_fd);
+        return 0;
+    }
+    (void)printf("ntap-b: direct token accepted remote=%s user_id=%lld network_id=%lld\n",
+                 remote, (long long)token.user_id, (long long)token.network_id);
     (void)fflush(stdout);
     ntap_socket_close(client_fd);
     return 0;
@@ -362,6 +402,7 @@ static int b_direct_accept_probe(ntap_socket_t listen_fd, char *err, size_t err_
 
 static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
                             const ntap_config_push_t *runtime_config,
+                            const char *node_id, const char *node_key,
                             int ping_count, unsigned int ping_interval_ms,
                             int send_test_frame_count, int expect_test_frame,
                             int send_test_frame_each_pong,
@@ -531,7 +572,9 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
         }
         if (direct_listen_fd != NTAP_INVALID_SOCKET &&
             FD_ISSET(direct_listen_fd, &readfds)) {
-            if (b_direct_accept_probe(direct_listen_fd, err, err_len) != 0) {
+            if (b_direct_accept_probe(direct_listen_fd, node_id, node_key,
+                                      (int64_t)auth_ok->network_id,
+                                      err, err_len) != 0) {
                 goto done;
             }
             continue;
@@ -670,7 +713,8 @@ static int run_session(const ntap_b_config_t *cfg, int ping_count,
     }
 #endif
 
-    rc = run_control_loop(fd, &auth_ok, &runtime_config, ping_count, ping_interval_ms,
+    rc = run_control_loop(fd, &auth_ok, &runtime_config, cfg->node_id, cfg->node_key,
+                          ping_count, ping_interval_ms,
                           send_test_frame_count, expect_test_frame,
                           send_test_frame_each_pong, err, err_len);
 
