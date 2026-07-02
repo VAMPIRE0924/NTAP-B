@@ -42,6 +42,11 @@ validator:
 
     sh /tmp/NTAP-B-<version>-openwrt-install.sh --package /tmp/NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk --server-addr '<ntap-a-host>:8024' --node-id '<node-id-from-ntap-a>' --node-key '<node-key-from-ntap-a>' --bridge-name br-lan --enable --start --run-validator --validator /tmp/NTAP-B-<version>-openwrt-device-validate.sh --strict-service
 
+From the integration workspace, scripts/openwrt/deploy-remote.ps1 can copy the
+compiled release assets to a reachable OpenWrt target over SSH/SCP, run the
+install helper, and fetch the device validation report. Prefer NTAP_NODE_KEY or
+NodeKeyFile so the node key does not have to be typed into the command line.
+
 At runtime, NTAP-A controls TAP bridge attachment through the node
 bridge_name field carried in CONFIG_PUSH.
 

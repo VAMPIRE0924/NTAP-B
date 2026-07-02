@@ -12,6 +12,7 @@ build-ntap-b-sdk.sh            Linux/WSL helper: stage and optionally build in a
 fetch-sdk.sh                   Linux/WSL helper: download and verify a selected OpenWrt SDK
 fetch-sdk.ps1                  Windows wrapper for fetch-sdk.sh
 verify-package.sh              Linux/WSL helper: inspect ntap-b .apk/.ipk metadata and payload
+deploy-remote.ps1              Windows helper: copy release assets to an OpenWrt target over SSH/SCP, run install, and fetch the validation report
 device-validate.sh             OpenWrt target helper: verify installed package, TAP, UCI, and service state
 install-package.sh             OpenWrt target helper: install package, write UCI config, preflight, and start service
 ```
@@ -91,3 +92,22 @@ sh /tmp/NTAP-B-<version>-openwrt-install.sh \
   --validator /tmp/NTAP-B-<version>-openwrt-device-validate.sh \
   --strict-service
 ```
+
+From the integration workspace, the same release-asset flow can be automated
+over SSH/SCP. Keep the node key in an environment variable or file so it does
+not have to be typed into the command line:
+
+```powershell
+$env:NTAP_NODE_KEY = '<node-key-from-ntap-a>'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\deploy-remote.ps1 `
+  -Version <version> `
+  -Host <openwrt-host-or-ip> `
+  -ServerAddr '<ntap-a-host>:8024' `
+  -NodeId '<node-id-from-ntap-a>' `
+  -BridgeName br-lan `
+  -Enable -Start -StrictService
+```
+
+Use `-DryRun` to print the local SSH/SCP/install commands without connecting,
+or `-TargetDryRun` to copy files and ask the target install helper to print
+what it would change.

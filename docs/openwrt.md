@@ -122,6 +122,19 @@ The validator checks `/usr/sbin/ntap-b`, `/etc/init.d/ntap-b`,
 `/etc/init.d/ntap-b check`, service state, and UCI values with `node_key`
 masked in the report.
 
+If the target is reachable over SSH, use the integration helper to copy the
+compiled release assets, run the install helper, and fetch the target validation
+report:
+
+```powershell
+$env:NTAP_NODE_KEY = '<node-key-from-ntap-a>'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\deploy-remote.ps1 -Version <version> -Host <openwrt-host-or-ip> -ServerAddr '<ntap-a-host>:8024' -NodeId '<node-id-from-ntap-a>' -BridgeName br-lan -Enable -Start -StrictService
+```
+
+Use `-DryRun` to validate the generated SSH/SCP commands without connecting to
+the target. Use `-TargetDryRun` when the target is reachable but you want the
+OpenWrt install helper to print intended changes without applying them.
+
 ## Pending
 
 ```text
