@@ -13,6 +13,7 @@ param(
     [string]$NodeKey = "",
     [string]$NodeKeyFile = "",
     [string]$NodeKeyEnv = "NTAP_NODE_KEY",
+    [string]$TargetArch = "",
     [string]$BridgeName = "br-lan",
     [string]$TapName = "ntap-b0",
     [string]$Mtu = "1400",
@@ -82,6 +83,25 @@ function Invoke-External {
     }
 }
 
+function Invoke-Capture {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $display = Mask-Secrets ("{0} {1}" -f $FilePath, ($Arguments -join " "))
+    if ($DryRun) {
+        Write-Host "DRY-RUN: $display"
+        return @()
+    }
+    Write-Host "RUN: $display"
+    $output = & $FilePath @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Fail "$Label failed: $display :: $($output -join ' ')"
+    }
+    return @($output)
+}
+
 function Resolve-NodeKey {
     if (-not [string]::IsNullOrWhiteSpace($NodeKey)) {
         return $NodeKey
@@ -99,6 +119,43 @@ function Resolve-NodeKey {
         }
     }
     return ""
+}
+
+function Get-OpenWrtPackageArch {
+    param([Parameter(Mandatory = $true)][string]$Directory)
+    $metadata = Join-Path $Directory "NTAP-B-$Version-openwrt-METADATA.txt"
+    if (-not (Test-Path -LiteralPath $metadata)) {
+        Fail "OpenWrt package metadata missing: $metadata"
+    }
+    foreach ($line in [System.IO.File]::ReadLines($metadata)) {
+        if ($line -match '^\s*arch:\s*(\S+)\s*$') {
+            return $Matches[1]
+        }
+    }
+    Fail "OpenWrt package metadata does not contain arch: $metadata"
+}
+
+function Get-ArchFromOpenWrtProbe {
+    param($Output)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($line in @($Output)) {
+        $text = ([string]$line).Trim()
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            continue
+        }
+        if ($text -match '^arch\s+(\S+)\s+\d+') {
+            $arch = $Matches[1]
+            if ($arch -notin @("all", "noarch")) {
+                $candidates.Add($arch) | Out-Null
+            }
+        } elseif ($text -match '^[A-Za-z0-9_.-]+$') {
+            $candidates.Add($text) | Out-Null
+        }
+    }
+    if ($candidates.Count -eq 0) {
+        return ""
+    }
+    return $candidates[$candidates.Count - 1]
 }
 
 foreach ($tool in @("ssh.exe", "scp.exe")) {
@@ -129,6 +186,10 @@ foreach ($required in @($installer, $validator)) {
     if (-not (Test-Path -LiteralPath $required)) {
         Fail "missing release asset: $required"
     }
+}
+$packageArch = Get-OpenWrtPackageArch -Directory $packageDir
+if (-not [string]::IsNullOrWhiteSpace($TargetArch) -and $TargetArch -ne $packageArch) {
+    Fail "TargetArch $TargetArch does not match release package arch $packageArch"
 }
 
 $script:ResolvedNodeKey = Resolve-NodeKey
@@ -165,9 +226,29 @@ Write-Host "Target=$target"
 Write-Host "Port=$Port"
 Write-Host "RemoteDir=$RemoteDir"
 Write-Host "Package=$($openWrtPackage[0].FullName)"
+Write-Host "PackageArch=$packageArch"
+if (-not [string]::IsNullOrWhiteSpace($TargetArch)) {
+    Write-Host "TargetArch=$TargetArch"
+}
 Write-Host "ReportOut=$ReportOut"
 Write-Host "TargetDryRun=$TargetDryRun"
 Write-Host "DryRun=$DryRun"
+
+$probeCommand = "if command -v apk >/dev/null 2>&1; then apk --print-arch; elif command -v opkg >/dev/null 2>&1; then opkg print-architecture; else uname -m; fi"
+$remoteArchOutput = Invoke-Capture -FilePath "ssh.exe" -Arguments @("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-p", "$Port", $target, $probeCommand) -Label "OpenWrt arch probe"
+if (-not $DryRun) {
+    $remoteArch = Get-ArchFromOpenWrtProbe -Output $remoteArchOutput
+    if ([string]::IsNullOrWhiteSpace($remoteArch)) {
+        Fail "unable to detect remote OpenWrt package architecture"
+    }
+    Write-Host "RemoteArch=$remoteArch"
+    if (-not [string]::IsNullOrWhiteSpace($TargetArch) -and $remoteArch -ne $TargetArch) {
+        Fail "remote OpenWrt arch $remoteArch does not match TargetArch $TargetArch"
+    }
+    if ($remoteArch -ne $packageArch) {
+        Fail "remote OpenWrt arch $remoteArch does not match release package arch $packageArch"
+    }
+}
 
 Invoke-External -FilePath "ssh.exe" -Arguments @("-p", "$Port", $target, "mkdir -p $(Quote-Sh $RemoteDir)")
 Invoke-External -FilePath "scp.exe" -Arguments @("-P", "$Port", $openWrtPackage[0].FullName, $installer, $validator, "${target}:$RemoteDir/")

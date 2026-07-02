@@ -110,6 +110,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\deploy-rem
   -Host <openwrt-host-or-ip> `
   -ServerAddr '<ntap-a-host>:8024' `
   -NodeId '<node-id-from-ntap-a>' `
+  -TargetArch <openwrt-package-arch> `
   -BridgeName br-lan `
   -Enable -Start -StrictService
 ```
@@ -117,3 +118,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\deploy-rem
 Use `-DryRun` to print the local SSH/SCP/install commands without connecting,
 or `-TargetDryRun` to copy files and ask the target install helper to print
 what it would change.
+Before a non-dry-run install, `deploy-remote.ps1` probes the remote package
+architecture through SSH and stops if it does not match the release package
+metadata or the optional `-TargetArch` value.
