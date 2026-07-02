@@ -23,7 +23,12 @@ Preflight a target bridge before enabling it in NTAP-A:
 
 ```sh
 ntap-b check-env --bridge-name br-lan
+/etc/init.d/ntap-b check
 ```
+
+The init script reads optional UCI settings `bridge_check_name` and
+`preflight_on_start`. They only control local deployment preflight; runtime
+bridge attachment is still controlled by NTAP-A CONFIG_PUSH.
 
 Set `OPENWRT_SDK` or pass `-SdkPath` after the target device architecture is
 selected. The Linux/WSL helper can then copy the package into the SDK, build an

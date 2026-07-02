@@ -1,8 +1,10 @@
 # OpenWrt Notes
 
 NTAP-B is the only component that targets OpenWrt in the current landing plan.
-The OpenWrt package follows the standard SDK package layout with a package
-Makefile plus `files/etc/config` and `files/etc/init.d` service files.
+Deployment should use the compiled package or binary artifact, not the
+integration workspace. The OpenWrt package follows the standard SDK package
+layout with a package Makefile plus `files/etc/config` and `files/etc/init.d`
+service files.
 
 ## Implemented
 
@@ -31,6 +33,18 @@ preflight TAP privileges and the bridge attach path:
 ```sh
 ntap-b check-env --bridge-name br-lan
 ```
+
+When installed as an OpenWrt service, the same check is exposed through init.d:
+
+```sh
+/etc/init.d/ntap-b check
+uci set ntap-b.node.bridge_check_name='br-lan'
+uci set ntap-b.node.preflight_on_start='1'
+uci commit ntap-b
+```
+
+`bridge_check_name` is only a local deployment preflight target. Runtime bridge
+attachment still comes from NTAP-A node config through CONFIG_PUSH.
 
 Run this on Windows to stage the package and write a local Linux size baseline:
 

@@ -32,4 +32,8 @@ matching OpenWrt SDK is available:
     OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
 
 At runtime, NTAP-A controls TAP bridge attachment through the node
-ridge_name field carried in CONFIG_PUSH.
+bridge_name field carried in CONFIG_PUSH.
+
+On OpenWrt, /etc/init.d/ntap-b check runs the local preflight. Optional UCI
+settings bridge_check_name and preflight_on_start only affect local deployment
+checks; runtime bridge attachment still comes from NTAP-A.
