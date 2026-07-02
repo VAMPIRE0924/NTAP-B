@@ -30,6 +30,7 @@ Build the final OpenWrt .apk or .ipk only after the target architecture is
 selected and the matching OpenWrt SDK is available:
 
     OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
+    OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
 
 At runtime, NTAP-A controls TAP bridge attachment through the node
 bridge_name field carried in CONFIG_PUSH.

@@ -125,8 +125,11 @@ if [ -n "$PKG" ] && [ -f "$PKG" ]; then
     mkdir -p "$PACKAGE_OUT"
     cp "$PKG" "$PACKAGE_OUT/"
     COPIED_PKG="$PACKAGE_OUT/$(basename "$PKG")"
+    METADATA_REPORT="$OUT_ROOT/ntap-b-openwrt-package-metadata.txt"
+    OPENWRT_SDK="$SDK" sh "$ROOT/scripts/openwrt/verify-package.sh" "$COPIED_PKG" > "$METADATA_REPORT"
     {
         echo "OpenWrtPackageOutput=$COPIED_PKG"
+        echo "OpenWrtPackageMetadata=$METADATA_REPORT"
         wc -c < "$PKG" | awk '{print "OpenWrtPackageSizeBytes="$1}'
     } >> "$REPORT"
     case "$PKG_FORMAT" in

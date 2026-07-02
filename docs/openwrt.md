@@ -72,6 +72,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\fetch-sdk.
 ```sh
 SDK=$(OPENWRT_VERSION=25.12.5 OPENWRT_TARGET=x86 OPENWRT_SUBTARGET=64 sh scripts/openwrt/fetch-sdk.sh)
 OPENWRT_SDK="$SDK" sh scripts/openwrt/build-ntap-b-sdk.sh
+OPENWRT_SDK="$SDK" sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
 ```
 
 The report is written to `_release/openwrt/ntap-b-size-report.txt`. Without a
@@ -80,7 +81,10 @@ build as skipped.
 
 The current x86/64 SDK smoke builds
 `_release/openwrt/package-output/ntap-b-0.1-r1.apk` and records a package size
-of 25,984 bytes. This proves the build chain, not the final device target.
+of 25,984 bytes. Package metadata verification confirms the package depends on
+`kmod-tun`, `libc`, and `libopenssl3`, and carries `/usr/sbin/ntap-b`,
+`/etc/init.d/ntap-b`, and `/etc/config/ntap-b`. This proves the build chain,
+not the final device target.
 
 ## Pending
 

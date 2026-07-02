@@ -11,6 +11,7 @@ prepare-ntap-b-package.ps1     Windows helper: stage SDK package + local size ba
 build-ntap-b-sdk.sh            Linux/WSL helper: stage and optionally build in an SDK
 fetch-sdk.sh                   Linux/WSL helper: download and verify a selected OpenWrt SDK
 fetch-sdk.ps1                  Windows wrapper for fetch-sdk.sh
+verify-package.sh              Linux/WSL helper: inspect ntap-b .apk/.ipk metadata and payload
 ```
 
 Use `prepare-ntap-b-package.ps1` without an SDK to verify the package staging
@@ -55,3 +56,9 @@ OPENWRT_SDK="$SDK" sh scripts/openwrt/build-ntap-b-sdk.sh
 The SDK build helper defaults to a GitHub mirror for OpenWrt feeds because
 `git.openwrt.org` can be unstable from WSL. Set
 `OPENWRT_FEED_GITHUB_MIRROR=0` to keep the feed URLs from the SDK.
+
+Verify the generated package metadata and payload paths:
+
+```sh
+OPENWRT_SDK="$SDK" sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
+```
