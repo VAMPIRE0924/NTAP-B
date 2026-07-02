@@ -43,6 +43,8 @@ typedef struct b_socks_stream {
     int active;
     uint32_t stream_id;
     ntap_socket_t fd;
+    int client_fin;
+    int target_fin;
 } b_socks_stream_t;
 
 typedef struct b_direct_client {
@@ -460,11 +462,13 @@ static b_socks_stream_t *b_socks_stream_find(b_socks_stream_t *streams,
 
 static int b_send_socks_close(ntap_socket_t fd, uint32_t session_id,
                               uint32_t stream_id, uint16_t reason_code,
+                              uint16_t flags,
                               char *err, size_t err_len)
 {
     uint8_t payload[NTAP_SOCKS_CLOSE_REASON_SIZE];
 
-    if (ntap_encode_socks_close_reason(payload, stream_id, reason_code, 0) != 0) {
+    if (ntap_encode_socks_close_reason(payload, stream_id, reason_code,
+                                       flags) != 0) {
         (void)snprintf(err, err_len, "failed to encode SOCKS close");
         return -1;
     }
@@ -493,6 +497,7 @@ static int b_socks_stream_open(b_socks_stream_t *streams, ntap_socket_t control_
     if (ntap_tcp_connect(target, &target_fd, err, err_len) != 0) {
         (void)b_send_socks_close(control_fd, session_id, open_msg.stream_id,
                                  NTAP_SOCKS_CLOSE_REASON_TARGET_CONNECT_FAILED,
+                                 0,
                                  err, err_len);
         return 0;
     }
@@ -501,6 +506,8 @@ static int b_socks_stream_open(b_socks_stream_t *streams, ntap_socket_t control_
             streams[i].active = 1;
             streams[i].stream_id = open_msg.stream_id;
             streams[i].fd = target_fd;
+            streams[i].client_fin = 0;
+            streams[i].target_fin = 0;
             (void)printf("ntap-b: SOCKS stream open stream_id=%u target=%s\n",
                          open_msg.stream_id, target);
             (void)fflush(stdout);
@@ -510,6 +517,7 @@ static int b_socks_stream_open(b_socks_stream_t *streams, ntap_socket_t control_
     ntap_socket_close(target_fd);
     (void)b_send_socks_close(control_fd, session_id, open_msg.stream_id,
                              NTAP_SOCKS_CLOSE_REASON_RESOURCE_LIMITED,
+                             0,
                              err, err_len);
     return 0;
 }
@@ -528,6 +536,9 @@ static int b_socks_stream_data(b_socks_stream_t *streams, const uint8_t *payload
     if (stream == NULL) {
         return 0;
     }
+    if (stream->client_fin) {
+        return 0;
+    }
     return ntap_send_all(stream->fd, data.data, data.data_len, err, err_len);
 }
 
@@ -540,6 +551,37 @@ static void b_socks_stream_close(b_socks_stream_t *streams, uint32_t stream_id)
     }
     ntap_socket_close(stream->fd);
     stream->active = 0;
+}
+
+static void b_socks_stream_mark_client_fin(b_socks_stream_t *streams,
+                                           uint32_t stream_id)
+{
+    b_socks_stream_t *stream = b_socks_stream_find(streams, stream_id);
+
+    if (stream == NULL) {
+        return;
+    }
+    stream->client_fin = 1;
+    ntap_socket_shutdown_send(stream->fd);
+    if (stream->target_fin) {
+        ntap_socket_close(stream->fd);
+        stream->active = 0;
+    }
+}
+
+static void b_socks_stream_mark_target_fin(b_socks_stream_t *streams,
+                                           uint32_t stream_id)
+{
+    b_socks_stream_t *stream = b_socks_stream_find(streams, stream_id);
+
+    if (stream == NULL) {
+        return;
+    }
+    stream->target_fin = 1;
+    if (stream->client_fin) {
+        ntap_socket_close(stream->fd);
+        stream->active = 0;
+    }
 }
 
 static int b_direct_listener_start(const ntap_config_push_t *runtime_config,
@@ -729,7 +771,7 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
 #endif
         }
         for (i = 0; i < NTAP_B_MAX_SOCKS_STREAMS; i++) {
-            if (streams[i].active) {
+            if (streams[i].active && !streams[i].target_fin) {
                 FD_SET(streams[i].fd, &readfds);
 #ifndef _WIN32
                 if (streams[i].fd > maxfd) {
@@ -842,7 +884,11 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
                     (void)snprintf(err, err_len, "invalid SOCKS_STREAM_CLOSE");
                     goto done;
                 }
-                b_socks_stream_close(streams, close_msg.stream_id);
+                if ((close_msg.flags & NTAP_SOCKS_CLOSE_FLAG_FIN) != 0) {
+                    b_socks_stream_mark_client_fin(streams, close_msg.stream_id);
+                } else {
+                    b_socks_stream_close(streams, close_msg.stream_id);
+                }
                 continue;
             }
             (void)snprintf(err, err_len, "unexpected message: %s",
@@ -868,10 +914,13 @@ static int run_control_loop(ntap_socket_t fd, const ntap_auth_ok_t *auth_ok,
             if (n <= 0) {
                 uint32_t stream_id = streams[i].stream_id;
 
-                b_socks_stream_close(streams, stream_id);
-                (void)b_send_socks_close(fd, auth_ok->session_id, stream_id,
-                                         NTAP_SOCKS_CLOSE_REASON_REMOTE_CLOSED,
-                                         err, err_len);
+                if (b_send_socks_close(fd, auth_ok->session_id, stream_id,
+                                       NTAP_SOCKS_CLOSE_REASON_REMOTE_CLOSED,
+                                       NTAP_SOCKS_CLOSE_FLAG_FIN,
+                                       err, err_len) != 0) {
+                    goto done;
+                }
+                b_socks_stream_mark_target_fin(streams, stream_id);
                 continue;
             }
             if (ntap_encode_socks_data(out_payload, sizeof(out_payload), &out_len,
