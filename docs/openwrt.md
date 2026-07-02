@@ -20,7 +20,10 @@ NTAP-A owns the runtime `bridge_name` setting through node config and
 CONFIG_PUSH. When `bridge_name` is non-empty, NTAP-B attaches the opened TAP
 interface to that Linux bridge and fails clearly if the bridge is missing.
 The integration workspace verifies this with
-`scripts/smoke-phase2-bridge-netns.sh`.
+`scripts/smoke-phase2-bridge-netns.sh`. It also verifies the DHCP shape with
+`scripts/smoke-phase2-bridge-dhcp-netns.sh`: dnsmasq runs behind NTAP-B's
+bridge, NTAP-C receives a DHCP lease through the NTAP TAP relay, and the
+leased TAP address can ping the bridge gateway.
 
 Run this on Windows to stage the package and write a local Linux size baseline:
 
@@ -48,6 +51,6 @@ install matching OpenWrt SDK or ImageBuilder
 compile ntap-b as a target musl .ipk
 record final .ipk size
 validate on OpenWrt rootfs or hardware
-validate br-lan DHCP behavior on OpenWrt
+repeat br-lan DHCP behavior on OpenWrt hardware/rootfs
 run 24-hour device stability test
 ```

@@ -16,7 +16,9 @@ direct listener from CONFIG_PUSH direct_enabled/direct_port with short-lived tok
 direct TAP_FRAME relay between authenticated direct clients and local Linux TAP
 OpenWrt package skeleton, default UCI config, procd init script, and SDK staging helpers
 CONFIG_PUSH bridge_name consumption with Linux TAP bridge attach and clear missing-bridge errors
+bridge-side DHCP netns validation for NTAP-C lease acquisition through NTAP-B bridged TAP
 ```
 
-OpenWrt target-SDK `.ipk` compilation, br-lan DHCP validation, and device-size
-reporting on the selected hardware target remain later-phase work.
+OpenWrt target-SDK `.ipk` compilation, hardware/rootfs br-lan DHCP repeat
+validation, and device-size reporting on the selected hardware target remain
+later-phase work.
