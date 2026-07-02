@@ -83,8 +83,9 @@ The current x86/64 SDK smoke builds
 `_release/openwrt/package-output/ntap-b-0.1-r1.apk` and records a package size
 of 25,984 bytes. Package metadata verification confirms the package depends on
 `kmod-tun`, `libc`, and `libopenssl3`, and carries `/usr/sbin/ntap-b`,
-`/etc/init.d/ntap-b`, and `/etc/config/ntap-b`. This proves the build chain,
-not the final device target.
+`/etc/init.d/ntap-b`, and `/etc/config/ntap-b`. Release packages include the
+captured metadata as `NTAP-B-<version>-openwrt-METADATA.txt`. This proves the
+build chain, not the final device target.
 
 ## Pending
 
