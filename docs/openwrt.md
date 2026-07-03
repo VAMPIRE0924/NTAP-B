@@ -94,7 +94,13 @@ final device target.
 
 The install helper can install the copied `.apk`/`.ipk`, write UCI node values,
 run `/etc/init.d/ntap-b check`, enable/start the service, and invoke the device
-validator:
+validator. Customer-facing OpenWrt deployment should use the interactive path:
+
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-install.sh --interactive
+```
+
+Use the long command only for scripted deployment and CI:
 
 ```sh
 sh /tmp/NTAP-B-<version>-openwrt-install.sh \

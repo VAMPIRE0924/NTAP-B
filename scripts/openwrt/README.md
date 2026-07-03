@@ -87,6 +87,16 @@ For a target-side install flow, copy the package, install helper, and validator
 release assets to `/tmp/`, then run:
 
 ```sh
+sh /tmp/NTAP-B-<version>-openwrt-install.sh --interactive
+```
+
+The interactive path is the customer-facing NPC-style flow: it prompts for the
+package path, NTAP-A server address, Node ID, Node key, TAP name, bridge
+preflight name, enable/start choices, and validator choice.
+
+Automation can still pass every value on the command line:
+
+```sh
 sh /tmp/NTAP-B-<version>-openwrt-install.sh \
   --package /tmp/NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk \
   --server-addr '<ntap-a-host>:8024' \

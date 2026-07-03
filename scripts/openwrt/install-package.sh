@@ -20,10 +20,13 @@ SKIP_CONFIG=0
 SKIP_PREFLIGHT=0
 REPORT="/tmp/ntap-b-device-validation.txt"
 DRY_RUN=0
+INTERACTIVE=0
 
 usage() {
     cat <<EOF
-Usage: sh openwrt-install.sh --package PATH [options]
+Usage:
+  sh openwrt-install.sh --interactive
+  sh openwrt-install.sh --package PATH [options]
 
 Required unless --skip-config is used:
   --server-addr HOST:PORT
@@ -31,6 +34,7 @@ Required unless --skip-config is used:
   --node-key KEY
 
 Options:
+  --interactive          Ask for package, server, node, bridge, and start options.
   --package PATH          NTAP-B OpenWrt .apk or .ipk package.
   --validator PATH        Device validator script copied to the target.
   --tap-name NAME         TAP name. Default: ntap-b0.
@@ -141,6 +145,10 @@ while [ "$#" -gt 0 ]; do
             DRY_RUN=1
             shift
             ;;
+        --interactive)
+            INTERACTIVE=1
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -156,6 +164,166 @@ done
 say() {
     printf '%s\n' "$*"
 }
+
+is_tty() {
+    [ -t 0 ] && [ -t 1 ]
+}
+
+find_first_file() {
+    for candidate in "$@"; do
+        [ -f "$candidate" ] || continue
+        printf '%s\n' "$candidate"
+        return 0
+    done
+    return 1
+}
+
+find_default_package() {
+    find_first_file \
+        ./NTAP-B-*-openwrt-ntap-b-*.apk \
+        ./NTAP-B-*-openwrt-ntap-b-*.ipk \
+        ./*ntap-b*.apk \
+        ./*ntap-b*.ipk \
+        /tmp/NTAP-B-*-openwrt-ntap-b-*.apk \
+        /tmp/NTAP-B-*-openwrt-ntap-b-*.ipk \
+        /tmp/*ntap-b*.apk \
+        /tmp/*ntap-b*.ipk || true
+}
+
+find_default_validator() {
+    find_first_file \
+        ./NTAP-B-*-openwrt-device-validate.sh \
+        ./device-validate.sh \
+        /tmp/NTAP-B-*-openwrt-device-validate.sh \
+        /tmp/device-validate.sh || true
+}
+
+prompt_value() {
+    label=$1
+    default_value=$2
+    required=$3
+    value=""
+
+    while :; do
+        if [ -n "$default_value" ]; then
+            printf '%s [%s]: ' "$label" "$default_value" >&2
+        else
+            printf '%s: ' "$label" >&2
+        fi
+        IFS= read -r value || value=""
+        [ -n "$value" ] || value=$default_value
+        if [ -n "$value" ] || [ "$required" -ne 1 ]; then
+            printf '%s\n' "$value"
+            return 0
+        fi
+        printf '%s\n' "This value is required." >&2
+    done
+}
+
+prompt_secret() {
+    label=$1
+    required=$2
+    value=""
+
+    while :; do
+        printf '%s: ' "$label" >&2
+        if command -v stty >/dev/null 2>&1; then
+            old_stty=$(stty -g 2>/dev/null || true)
+            stty -echo 2>/dev/null || true
+            IFS= read -r value || value=""
+            [ -n "$old_stty" ] && stty "$old_stty" 2>/dev/null || true
+            printf '\n' >&2
+        else
+            IFS= read -r value || value=""
+        fi
+        if [ -n "$value" ] || [ "$required" -ne 1 ]; then
+            printf '%s\n' "$value"
+            return 0
+        fi
+        printf '%s\n' "This value is required." >&2
+    done
+}
+
+prompt_yes_no() {
+    label=$1
+    default_value=$2
+    answer=""
+    suffix="[Y/n]"
+    [ "$default_value" = "0" ] && suffix="[y/N]"
+
+    while :; do
+        printf '%s %s: ' "$label" "$suffix" >&2
+        IFS= read -r answer || answer=""
+        case "$answer" in
+            "") printf '%s\n' "$default_value"; return 0 ;;
+            y|Y|yes|YES|Yes) printf '1\n'; return 0 ;;
+            n|N|no|NO|No) printf '0\n'; return 0 ;;
+            *) printf '%s\n' "Please answer y or n." >&2 ;;
+        esac
+    done
+}
+
+run_interactive_setup() {
+    if ! is_tty && [ "${NTAP_INTERACTIVE_ALLOW_PIPE:-0}" != "1" ]; then
+        echo "--interactive requires a terminal" >&2
+        exit 2
+    fi
+
+    say "NTAP-B OpenWrt interactive install"
+    say "Copy the NTAP-B package, installer, and validator to /tmp, then run this helper."
+    say ""
+
+    default_package=$PACKAGE
+    [ -n "$default_package" ] || default_package=$(find_default_package)
+    PACKAGE=$(prompt_value "Package path" "$default_package" 1)
+
+    if [ "$SKIP_CONFIG" -ne 1 ]; then
+        SERVER_ADDR=$(prompt_value "NTAP-A server address (host:port)" "$SERVER_ADDR" 1)
+        NODE_ID=$(prompt_value "Node ID from NTAP-A" "$NODE_ID" 1)
+        NODE_KEY=$(prompt_secret "Node key from NTAP-A" 1)
+        TAP_NAME=$(prompt_value "TAP name" "$TAP_NAME" 1)
+        MTU=$(prompt_value "MTU" "$MTU" 1)
+        BRIDGE_CHECK_NAME=$(prompt_value "Bridge preflight name, usually br-lan" "${BRIDGE_CHECK_NAME:-br-lan}" 0)
+        PREFLIGHT_ON_START=$(prompt_yes_no "Run preflight before service start" "$PREFLIGHT_ON_START")
+    fi
+
+    ENABLE_SERVICE=$(prompt_yes_no "Enable ntap-b service" 1)
+    START_SERVICE=$(prompt_yes_no "Start ntap-b now" 1)
+
+    default_validator=$VALIDATOR
+    [ -n "$default_validator" ] || default_validator=$(find_default_validator)
+    if [ -n "$default_validator" ]; then
+        RUN_VALIDATOR=$(prompt_yes_no "Run device validation after install" 1)
+        if [ "$RUN_VALIDATOR" -eq 1 ]; then
+            VALIDATOR=$(prompt_value "Validator path" "$default_validator" 1)
+            STRICT_SERVICE=$(prompt_yes_no "Require service running in validation" "$START_SERVICE")
+        fi
+    else
+        RUN_VALIDATOR=$(prompt_yes_no "Validator script not found. Enter validator path manually" 0)
+        if [ "$RUN_VALIDATOR" -eq 1 ]; then
+            VALIDATOR=$(prompt_value "Validator path" "$VALIDATOR" 1)
+        fi
+    fi
+
+    say ""
+    say "Ready to install:"
+    say "  Package=$PACKAGE"
+    say "  ServerAddr=$SERVER_ADDR"
+    say "  NodeId=$NODE_ID"
+    say "  NodeKey=<masked>"
+    say "  TapName=$TAP_NAME"
+    say "  BridgeCheckName=$BRIDGE_CHECK_NAME"
+    say "  Enable=$ENABLE_SERVICE Start=$START_SERVICE Validate=$RUN_VALIDATOR"
+    confirm=$(prompt_yes_no "Continue" 1)
+    if [ "$confirm" -ne 1 ]; then
+        say "Install cancelled."
+        exit 1
+    fi
+}
+
+if [ "$INTERACTIVE" -eq 1 ]; then
+    run_interactive_setup
+fi
 
 run() {
     if [ "$DRY_RUN" -eq 1 ]; then
