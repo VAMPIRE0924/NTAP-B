@@ -1,55 +1,116 @@
 # NTAP-B
 
-OpenWrt/Linux node client with AUTH_NODE, CONFIG_PUSH, heartbeat, TAP relay, A-controlled Linux bridge attach, SOCKS egress, and direct TAP relay.
+NTAP-B 是部署在 OpenWrt 或 Linux 网关上的节点客户端。它连接 NTAP-A，完成节点鉴权，创建本地 TAP 设备，并按 NTAP-A 下发的 `bridge_name` 把 TAP 接入本地网桥，例如 `br-lan`。
 
-This repository is exported from the NTAP integration workspace. Keep git
-history source-only: do not commit build output, runtime databases, logs, or
-generated release archives. Final release packages belong in GitHub Releases.
+NTAP-B 的设计目标是轻量、可交互安装、适合 OpenWrt 小内存设备。Web 管理和复杂策略不放在 B 端，统一由 NTAP-A 管理。
 
-## Build
+## 下载和部署
 
-    make
-    make config-test
+正式部署请下载 GitHub Release 里的编译产物，不要直接拿源码目录里的临时构建文件部署。
 
-## Layout
+最新版本：
 
-    src/common/  shared protocol and helpers
-    src/b/  component source
-    conf/        minimal example config
-    scripts/openwrt/  OpenWrt package, UCI, procd, SDK, and device validation helpers
-    docs/             OpenWrt staging and SDK notes
+https://github.com/VAMPIRE0924/NTAP-B/releases/latest
 
-## OpenWrt
+OpenWrt 客户侧部署通常需要复制这几个文件到目标设备 `/tmp`：
 
-Stage the OpenWrt package and host-size baseline without committing generated
-output:
+```text
+NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk
+NTAP-B-<version>-openwrt-install.sh
+NTAP-B-<version>-openwrt-device-validate.sh
+NTAP-B-<version>-openwrt-RUNNING.txt
+NTAP-B-<version>-openwrt-METADATA.txt
+```
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\openwrt\prepare-ntap-b-package.ps1
+客户友好的安装方式：
 
-Build the final OpenWrt .apk or .ipk only after the target architecture is
-selected and the matching OpenWrt SDK is available:
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-install.sh --interactive
+```
 
+脚本会依次询问：
+
+- OpenWrt 包路径
+- NTAP-A 地址
+- Node ID
+- Node Key
+- TAP 名称
+- 网桥预检名称，通常是 `br-lan`
+- 是否启用和启动服务
+- 是否运行设备验证脚本
+
+自动化部署可以使用长命令：
+
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-install.sh \
+  --package /tmp/NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk \
+  --server-addr '<ntap-a-host>:8024' \
+  --node-id '<node-id-from-ntap-a>' \
+  --node-key '<node-key-from-ntap-a>' \
+  --bridge-name br-lan \
+  --enable --start \
+  --run-validator \
+  --validator /tmp/NTAP-B-<version>-openwrt-device-validate.sh \
+  --strict-service
+```
+
+安装后可以单独运行验证：
+
+```sh
+sh /tmp/NTAP-B-<version>-openwrt-device-validate.sh --bridge-name br-lan --strict-service
+```
+
+## 运行方式
+
+OpenWrt 包安装后会提供：
+
+```text
+/usr/sbin/ntap-b
+/etc/config/ntap-b
+/etc/init.d/ntap-b
+```
+
+常用命令：
+
+```sh
+/etc/init.d/ntap-b check
+/etc/init.d/ntap-b enable
+/etc/init.d/ntap-b start
+logread -f | grep ntap-b
+```
+
+`bridge_check_name` 只用于本地安装前预检；真正运行时是否挂接网桥，以 NTAP-A 下发的 `CONFIG_PUSH bridge_name` 为准。
+
+## 源码构建
+
+普通 Linux 开发验证：
+
+```sh
+make
+make config-test
+```
+
+OpenWrt 包构建请使用匹配目标架构的 OpenWrt SDK：
+
+```sh
 OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
 OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
+```
 
-After installing the compiled package on the target, run the device validator:
+## 目录
 
-    sh scripts/openwrt/device-validate.sh --bridge-name br-lan --strict-service
+```text
+src/b/          NTAP-B 节点客户端源码
+src/common/     三端共享协议、日志、网络、时间、buffer 等公共代码
+conf/           最小配置示例
+scripts/openwrt OpenWrt 包、UCI、procd、SDK 构建和设备验证脚本
+docs/openwrt.md OpenWrt 构建和设备验证说明
+Makefile        单仓库构建入口
+```
 
-Release assets also include an OpenWrt target install helper that can install
-the package, write UCI node config, preflight, enable/start procd, and run the
-validator:
+## 部署注意
 
-    sh /tmp/NTAP-B-<version>-openwrt-install.sh --package /tmp/NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk --server-addr '<ntap-a-host>:8024' --node-id '<node-id-from-ntap-a>' --node-key '<node-key-from-ntap-a>' --bridge-name br-lan --enable --start --run-validator --validator /tmp/NTAP-B-<version>-openwrt-device-validate.sh --strict-service
-
-From the integration workspace, scripts/openwrt/deploy-remote.ps1 can copy the
-compiled release assets to a reachable OpenWrt target over SSH/SCP, run the
-install helper, and fetch the device validation report. Prefer NTAP_NODE_KEY or
-NodeKeyFile so the node key does not have to be typed into the command line.
-
-At runtime, NTAP-A controls TAP bridge attachment through the node
-bridge_name field carried in CONFIG_PUSH.
-
-On OpenWrt, /etc/init.d/ntap-b check runs the local preflight. Optional UCI
-settings bridge_check_name and preflight_on_start only affect local deployment
-checks; runtime bridge attachment still comes from NTAP-A.
+- OpenWrt 目标需要 `/dev/net/tun`、`kmod-tun` 和 OpenSSL 运行库。
+- 16MB/32MB flash 设备要确认剩余空间和依赖包来源。
+- Node Key 不应写进公开日志或截图；安装脚本输出会做掩码。
+- Release 包和源码提交是两条线：源码仓库保持干净，编译产物只放 GitHub Release。
