@@ -1,4 +1,4 @@
-# NTAP-B
+# NTAP-B 
 
 NTAP-B is the NTAP node side. It runs at the customer gateway or internal host, connects to NTAP-A, authenticates as a node, creates the local TAP device, and joins the local network according to configuration delivered by NTAP-A.
 
