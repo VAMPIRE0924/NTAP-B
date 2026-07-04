@@ -1,116 +1,56 @@
-# NTAP-B
+﻿# NTAP-B
 
-NTAP-B 是部署在 OpenWrt 或 Linux 网关上的节点客户端。它连接 NTAP-A，完成节点鉴权，创建本地 TAP 设备，并按 NTAP-A 下发的 `bridge_name` 把 TAP 接入本地网桥，例如 `br-lan`。
+NTAP-B 鏄?NTAP 鐨勮妭鐐圭銆傚畠閮ㄧ讲鍦ㄥ鎴蜂晶缃戝叧鎴栧唴缃戜富鏈猴紝杩炴帴 NTAP-A锛屽畬鎴愯妭鐐归壌鏉冿紝鍒涘缓鏈湴 TAP 璁惧锛屽苟鎸?NTAP-A 涓嬪彂鐨?`bridge_name` 鎺ュ叆鏈湴缃戠粶銆?
+NTAP-B 鐨勮璁＄洰鏍囨槸杞婚噺銆佸彲浜や簰瀹夎銆侀€傚悎瀹㈡埛渚ц妭鐐硅澶囥€俉eb 绠＄悊鍜屽鏉傜瓥鐣ヤ笉鏀惧湪 B 绔紝缁熶竴鐢?NTAP-A 绠＄悊銆?
+## 涓変釜浠撳簱
 
-NTAP-B 的设计目标是轻量、可交互安装、适合 OpenWrt 小内存设备。Web 管理和复杂策略不放在 B 端，统一由 NTAP-A 管理。
-
-## 下载和部署
-
-正式部署请下载 GitHub Release 里的编译产物，不要直接拿源码目录里的临时构建文件部署。
-
-最新版本：
+NTAP 鎷嗘垚涓変釜骞插噣鐨勬簮鐮佷粨搴擄紝鏈€缁堝彲閮ㄧ讲鏂囦欢缁熶竴鏀惧湪鍚勮嚜 GitHub Release锛?
+- [NTAP-A](https://github.com/VAMPIRE0924/NTAP-A): 鍏綉鏈嶅姟绔紝璐熻矗绠＄悊 API銆丼QLite 鐘舵€佸簱銆佽妭鐐?TAP 閴存潈銆乀apHub 涓户銆?- [NTAP-B](https://github.com/VAMPIRE0924/NTAP-B): 鑺傜偣绔紝閮ㄧ讲鍦ㄥ鎴蜂晶缃戝叧鎴栧唴缃戜富鏈猴紝杩炴帴 A 骞舵帴鍏ユ湰鍦扮綉缁溿€?- [NTAP-C](https://github.com/VAMPIRE0924/NTAP-C): 瀹㈡埛绔紝Windows 绔彁渚涘浘褰㈢晫闈紝Linux 绔彁渚涘懡浠よ鍏ュ彛銆?
+## 涓嬭浇鍜岄儴缃?
+姝ｅ紡閮ㄧ讲璇蜂笅杞?GitHub Release 閲岀殑鏈€缁堝彂甯冨寘锛屼笉瑕佺洿鎺ユ嬁婧愮爜鐩綍閲岀殑涓存椂鏂囦欢閮ㄧ讲銆?
+鏈€鏂扮増鏈細
 
 https://github.com/VAMPIRE0924/NTAP-B/releases/latest
 
-OpenWrt 客户侧部署通常需要复制这几个文件到目标设备 `/tmp`：
+瀹㈡埛渚ц妭鐐归€氬父闇€瑕佷粠 Release 涓嬭浇锛?
+- 鑺傜偣瀹夎鍖?- 浜や簰瀹夎鑴氭湰
+- 璁惧楠岃瘉鑴氭湰
+- 杩愯璇存槑
 
-```text
-NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk
-NTAP-B-<version>-openwrt-install.sh
-NTAP-B-<version>-openwrt-device-validate.sh
-NTAP-B-<version>-openwrt-RUNNING.txt
-NTAP-B-<version>-openwrt-METADATA.txt
-```
-
-客户友好的安装方式：
+瀹㈡埛鍙嬪ソ鐨勫畨瑁呮柟寮忥細
 
 ```sh
-sh /tmp/NTAP-B-<version>-openwrt-install.sh --interactive
+sh /tmp/<NTAP-B-install-script> --interactive
 ```
 
-脚本会依次询问：
+瀹夎鑴氭湰浼氫緷娆¤闂細
 
-- OpenWrt 包路径
-- NTAP-A 地址
+- 鑺傜偣瀹夎鍖呰矾寰?- NTAP-A 鍦板潃
 - Node ID
 - Node Key
-- TAP 名称
-- 网桥预检名称，通常是 `br-lan`
-- 是否启用和启动服务
-- 是否运行设备验证脚本
+- TAP 鍚嶇О
+- 缃戞ˉ棰勬鍚嶇О锛岄€氬父鏄?`br-lan`
+- 鏄惁鍚敤鍜屽惎鍔ㄦ湇鍔?- 鏄惁杩愯璁惧楠岃瘉鑴氭湰
 
-自动化部署可以使用长命令：
+鑷姩鍖栭儴缃蹭篃鍙互浣跨敤 Release 璇存槑閲岀殑闈炰氦浜掑弬鏁般€侼ode Key 涓嶅簲鍐欒繘鍏紑鏃ュ織鎴栨埅鍥撅紱瀹夎鑴氭湰杈撳嚭浼氬仛鎺╃爜銆?
+## 杩愯鏂瑰紡
 
-```sh
-sh /tmp/NTAP-B-<version>-openwrt-install.sh \
-  --package /tmp/NTAP-B-<version>-openwrt-ntap-b-0.1-r1.apk \
-  --server-addr '<ntap-a-host>:8024' \
-  --node-id '<node-id-from-ntap-a>' \
-  --node-key '<node-key-from-ntap-a>' \
-  --bridge-name br-lan \
-  --enable --start \
-  --run-validator \
-  --validator /tmp/NTAP-B-<version>-openwrt-device-validate.sh \
-  --strict-service
-```
-
-安装后可以单独运行验证：
-
-```sh
-sh /tmp/NTAP-B-<version>-openwrt-device-validate.sh --bridge-name br-lan --strict-service
-```
-
-## 运行方式
-
-OpenWrt 包安装后会提供：
-
-```text
-/usr/sbin/ntap-b
-/etc/config/ntap-b
-/etc/init.d/ntap-b
-```
-
-常用命令：
+鑺傜偣鍖呭畨瑁呭悗浼氭彁渚涙湰鍦版湇鍔″叆鍙ｅ拰閰嶇疆鏂囦欢銆傚父鐢ㄦ搷浣滐細
 
 ```sh
 /etc/init.d/ntap-b check
 /etc/init.d/ntap-b enable
 /etc/init.d/ntap-b start
-logread -f | grep ntap-b
 ```
 
-`bridge_check_name` 只用于本地安装前预检；真正运行时是否挂接网桥，以 NTAP-A 下发的 `CONFIG_PUSH bridge_name` 为准。
-
-## 源码构建
-
-普通 Linux 开发验证：
-
-```sh
-make
-make config-test
-```
-
-OpenWrt 包构建请使用匹配目标架构的 OpenWrt SDK：
-
-```sh
-OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/build-ntap-b-sdk.sh
-OPENWRT_SDK=/path/to/openwrt-sdk sh scripts/openwrt/verify-package.sh _release/openwrt/package-output/ntap-b-0.1-r1.apk
-```
-
-## 目录
+`bridge_check_name` 鍙敤浜庢湰鍦板畨瑁呭墠棰勬锛涚湡姝ｈ繍琛屾椂鏄惁鎸傛帴缃戞ˉ锛屼互 NTAP-A 涓嬪彂鐨?`CONFIG_PUSH bridge_name` 涓哄噯銆?
+## 婧愮爜鑼冨洿
 
 ```text
-src/b/          NTAP-B 节点客户端源码
-src/common/     三端共享协议、日志、网络、时间、buffer 等公共代码
-conf/           最小配置示例
-scripts/openwrt OpenWrt 包、UCI、procd、SDK 构建和设备验证脚本
-docs/openwrt.md OpenWrt 构建和设备验证说明
-Makefile        单仓库构建入口
-```
+src/b/       NTAP-B 鑺傜偣绔簮鐮?src/common/  涓夌鍏变韩鍗忚銆佹棩蹇椼€佺綉缁溿€佹椂闂淬€乥uffer 绛夊叕鍏变唬鐮?conf/        鏈€灏忛厤缃ず渚?```
 
-## 部署注意
+婧愮爜浠撳簱鍙繚瀛樻簮鐮併€侀厤缃牱渚嬨€丷EADME 鍜?LICENSE锛涙渶缁堝彂甯冨寘鍙斁鍦?GitHub Release銆?
+## License
 
-- OpenWrt 目标需要 `/dev/net/tun`、`kmod-tun` 和 OpenSSL 运行库。
-- 16MB/32MB flash 设备要确认剩余空间和依赖包来源。
-- Node Key 不应写进公开日志或截图；安装脚本输出会做掩码。
-- Release 包和源码提交是两条线：源码仓库保持干净，编译产物只放 GitHub Release。
+GPL-3.0-only. See `LICENSE`.
+
